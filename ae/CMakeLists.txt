@@ -26,7 +26,7 @@ else()
   set(PIPL_INC /I "${AE_SDK_DIR}/Headers" /I "${CMAKE_CURRENT_LIST_DIR}" /I "${AE_SDK_DIR}/Resources")
   add_custom_command(
     OUTPUT ${PIPL_RC}
-    COMMAND ${CMAKE_CXX_COMPILER} /nologo /D AE_OS_WIN /D AE_PROC_INTELx64 ${PIPL_INC} /EP ${PIPL_SRC} > ${PIPL_RR}
+    COMMAND ${CMAKE_CXX_COMPILER} /nologo ${PIPL_INC} /EP ${PIPL_SRC} > ${PIPL_RR}
     COMMAND "${AE_SDK_DIR}/Resources/PiPLtool.exe" ${PIPL_RR} ${PIPL_RRC}
     COMMAND ${CMAKE_CXX_COMPILER} /nologo /D MSWindows /EP ${PIPL_RRC} > ${PIPL_RC}
     DEPENDS ${PIPL_SRC} ${CMAKE_CURRENT_LIST_DIR}/TimeyumFlags.h

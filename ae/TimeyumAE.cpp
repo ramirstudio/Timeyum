@@ -60,7 +60,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_ANGLE("Angle", 90, ID_ANGLE);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Symmetric", "On", FALSE, PF_ParamFlag_SUPERVISE, ID_SYMMETRIC);
+    PF_ADD_CHECKBOXX("Symmetric", FALSE, PF_ParamFlag_SUPERVISE, ID_SYMMETRIC);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Back Length", 0, 200, 0, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_BACK_LENGTH);
     AEFX_CLR_STRUCT(def);
@@ -116,7 +116,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_TOPIC("Ghost", ID_GHOST_TOPIC);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Enable", "On", FALSE, PF_ParamFlag_SUPERVISE, ID_GHOST);
+    PF_ADD_CHECKBOXX("Enable", FALSE, PF_ParamFlag_SUPERVISE, ID_GHOST);
     AEFX_CLR_STRUCT(def);
     PF_ADD_SLIDER("Count", 1, 16, 1, 8, 1, ID_GHOST_COUNT);
     AEFX_CLR_STRUCT(def);
@@ -159,7 +159,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_TOPIC("Shake", ID_SHAKE_TOPIC);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Enable", "On", FALSE, PF_ParamFlag_SUPERVISE, ID_SHAKE);
+    PF_ADD_CHECKBOXX("Enable", FALSE, PF_ParamFlag_SUPERVISE, ID_SHAKE);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Amount", 0, 1000, 0, 200, 100, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_SHAKE_AMOUNT);
     AEFX_CLR_STRUCT(def);
@@ -393,7 +393,8 @@ void encodeColor(Image& img, int cs) {
 // Commands
 // ---------------------------------------------------------------------------------------------
 
-PF_Err about(PF_OutData* out_data) {
+PF_Err about(PF_InData* in_data, PF_OutData* out_data) {
+    (void)in_data;  // PF_SPRINTF expands to a call through in_data
     PF_SPRINTF(out_data->return_msg, "Timeyum Timeshift %d.%d\rARRI Timing Shift Box look.", TY_VERSION_MAJOR, TY_VERSION_MINOR);
     return PF_Err_NONE;
 }
@@ -518,7 +519,7 @@ DllExport PF_Err EffectMain(PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data
     PF_Err err = PF_Err_NONE;
     try {
         switch (cmd) {
-            case PF_Cmd_ABOUT: err = about(out_data); break;
+            case PF_Cmd_ABOUT: err = about(in_data, out_data); break;
             case PF_Cmd_GLOBAL_SETUP: err = globalSetup(out_data); break;
             case PF_Cmd_PARAMS_SETUP: err = addParams(in_data, out_data); break;
             case PF_Cmd_UPDATE_PARAMS_UI: err = updateParamsUI(in_data, params); break;
@@ -540,8 +541,10 @@ DllExport PF_Err PluginDataEntryFunction2(PF_PluginDataPtr inPtr, PF_PluginDataC
     (void)inSPBasicSuitePtr;
     (void)inHostName;
     (void)inHostVersion;
-    return PF_REGISTER_EFFECT_EXT2(inPtr, inPluginDataCallBackPtr, TY_NAME, TY_MATCH_NAME, TY_CATEGORY, AE_RESERVED_INFO,
-                                   "EffectMain", "https://github.com/ramirstudio/Timeyum");
+    PF_Err result = PF_Err_INVALID_CALLBACK;  // the macro assigns to `result`
+    result = PF_REGISTER_EFFECT_EXT2(inPtr, inPluginDataCallBackPtr, TY_NAME, TY_MATCH_NAME, TY_CATEGORY, AE_RESERVED_INFO,
+                                     "EffectMain", "https://github.com/ramirstudio/Timeyum");
+    return result;
 }
 #endif
 

@@ -111,7 +111,8 @@ struct PF_SmartRenderExtra { PF_SmartRenderCallbacks* cb; };
 #define AEFX_CLR_STRUCT(s) do {} while (0)
 #define ERR(x) do { if (!err) err = (x); } while (0)
 #define ERR2(x) do { if (!err2) err2 = (x); } while (0)
-#define PF_SPRINTF sprintf
+// like the real macro, PF_SPRINTF reaches through the variable named in_data
+#define PF_SPRINTF (in_data, sprintf)
 
 // ---- parameter recording -------------------------------------------------------------------
 struct MockParam { std::string kind, name; double dflt; int id; int flags; };
@@ -120,7 +121,7 @@ inline std::vector<MockParam>& mockRecord() { static std::vector<MockParam> r; r
 #define PF_ADD_FLOAT_SLIDERX(NAME, VMIN, VMAX, SMIN, SMAX, DFLT, PREC, DISP, FLAGS, ID) MOCK_ADD("float", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_POPUPX(NAME, N, DFLT, CHOICES, FLAGS, ID) MOCK_ADD("popup", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_POPUP(NAME, N, DFLT, CHOICES, ID) MOCK_ADD("popup", NAME, DFLT, ID, 0)
-#define PF_ADD_CHECKBOXX(NAME, CBNAME, DFLT, FLAGS, ID) MOCK_ADD("check", NAME, DFLT, ID, FLAGS)
+#define PF_ADD_CHECKBOXX(NAME, DFLT, FLAGS, ID) MOCK_ADD("check", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_CHECKBOX(NAME, CBNAME, DFLT, FLAGS, ID) MOCK_ADD("check", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_ANGLE(NAME, DFLT, ID) MOCK_ADD("angle", NAME, DFLT, ID, 0)
 #define PF_ADD_COLOR(NAME, R, G, B, ID) MOCK_ADD("color", NAME, (R) * 65536 + (G) * 256 + (B), ID, 0)
@@ -160,3 +161,11 @@ struct AEFX_SuiteScoper {
     AEFX_SuiteScoper(PF_InData*, int, int, PF_OutData*) { suite.format = mockFormat(); }
     T* operator->() { return &suite; }
 };
+
+// PluginDataEntryFunction2 support: the real macro assigns to a local named `result`.
+#define PF_Err_INVALID_CALLBACK 6
+#define AE_RESERVED_INFO 8
+typedef void* PF_PluginDataPtr;
+typedef PF_Err (*PF_PluginDataCB2)(PF_PluginDataPtr, const char*, const char*, const char*, const char*, const char*, const char*);
+struct SPBasicSuite;
+#define PF_REGISTER_EFFECT_EXT2(PTR, CB, NAME, MATCH, CATEGORY, RESERVED, ENTRY, URL) ((void)(PTR), (void)(CB), result = PF_Err_NONE)
