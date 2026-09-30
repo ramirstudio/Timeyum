@@ -8,6 +8,8 @@
 
 using namespace timeyum;
 
+static const double kPi = 3.14159265358979323846;  // kPi is not defined by MSVC
+
 int main() {
     std::mt19937 rng(7);
     std::uniform_real_distribution<float> u(-1.f, 1.f);
@@ -22,7 +24,7 @@ int main() {
         for (int k = 0; k < n; ++k) {
             double sr = 0, si = 0;
             for (int j = 0; j < n; ++j) {
-                const double a = -2.0 * M_PI * (static_cast<long long>(j) * k % n) / n;
+                const double a = -2.0 * kPi * (static_cast<long long>(j) * k % n) / n;
                 sr += x[j].r * std::cos(a) - x[j].i * std::sin(a);
                 si += x[j].r * std::sin(a) + x[j].i * std::cos(a);
             }
