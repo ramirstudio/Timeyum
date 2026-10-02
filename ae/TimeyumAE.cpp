@@ -9,6 +9,7 @@
 #include <exception>
 #include <new>
 #include <type_traits>
+#include <vector>
 
 #include "AEConfig.h"
 #include "entry.h"
@@ -196,6 +197,63 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_END_TOPIC(ID_OUTPUT_END);
 
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_TOPIC("Warp", ID_WARP_TOPIC);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_CHECKBOXX("Enable", FALSE, PF_ParamFlag_SUPERVISE, ID_WARP);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_POPUP("View", 4, 1, "Result|Length Map|Reaction|Displacement", ID_WARP_VIEW);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Amount", 0, 400, 0, 200, 100, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_WARP_AMOUNT);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Flow Length", 0, 100, 0, 100, 60, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_FLOW_LENGTH);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Flow Wave", 0, 30, 0, 8, 1.2, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_FLOW_WAVE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Flow Scale", 2, 150, 5, 100, 35, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_FLOW_SCALE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Flow Speed", 0, 10, 0, 2, 0.25, PF_Precision_HUNDREDTHS, 0, 0, ID_FLOW_SPEED);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_SLIDER("Flow Detail", 1, 6, 1, 5, 3, ID_FLOW_DETAIL);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_SLIDER("Flow Seed", 0, 99999, 0, 999, 7, ID_FLOW_SEED);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_ANGLE("Drift Angle", 90, ID_DRIFT_ANGLE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Drift Speed", 0, 200, 0, 50, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_DRIFT_SPEED);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Brightness Response", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_LUMA_RESPONSE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Reaction Softness", 0, 30, 0, 15, 4, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_LUMA_SOFTNESS);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Motion Response", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_MOTION_RESPONSE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Motion Sensitivity", 0, 50, 0, 20, 4, PF_Precision_TENTHS, 0, 0, ID_MOTION_SENS);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Inertia", 0, 100, 0, 100, 60, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_INERTIA);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_SLIDER("History Frames", 0, 8, 0, 8, 4, ID_HISTORY);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Length Reaction", 0, 300, 0, 200, 80, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_LENGTH_REACTION);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Wave Reaction", 0, 100, 0, 100, 70, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_WAVE_REACTION);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_POINT("Pull Point", 50, 50, 0, ID_PULL_POINT);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Pull Strength (+ bulge, - pinch)", -100, 100, -100, 100, 30, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_PULL_STRENGTH);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Pull Radius", 2, 150, 5, 100, 45, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_PULL_RADIUS);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Pull Length", 0, 300, 0, 200, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_PULL_LENGTH);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Auto Target Strength", -100, 100, -100, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_AUTO_STRENGTH);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Base Follow", 0, 100, 0, 100, 25, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_BASE_FOLLOW);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_SLIDER("Length Steps", 3, 12, 3, 12, 6, ID_WARP_LEVELS);
+    AEFX_CLR_STRUCT(def);
+    PF_END_TOPIC(ID_WARP_END);
+
     out_data->num_params = P_COUNT;
     return err;
 }
@@ -239,6 +297,16 @@ public:
         const double v = static_cast<double>(d.u.ad.value) / 65536.0;
         checkin(d);
         return v;
+    }
+    // Point in pixels of the (down-sampled) layer, the space of the input world.
+    void point(int index, double xy[2]) {
+        PF_ParamDef d;
+        xy[0] = in_->width * 0.5;
+        xy[1] = in_->height * 0.5;
+        if (!checkout(index, d)) return;
+        xy[0] = static_cast<double>(d.u.td.x_value) / 65536.0;
+        xy[1] = static_cast<double>(d.u.td.y_value) / 65536.0;
+        checkin(d);
     }
     void color(int index, double rgb[3]) {
         PF_ParamDef d;
@@ -314,6 +382,36 @@ Params readParams(PF_InData* in) {
     p.colorspace = r.popup(P_COLORSPACE);
     p.affect_alpha = r.check(P_AFFECT_ALPHA);
 
+    p.warp = r.check(P_WARP);
+    p.warp_view = r.popup(P_WARP_VIEW);
+    p.warp_amount = r.real(P_WARP_AMOUNT) / 100.0;
+    p.flow_length = r.real(P_FLOW_LENGTH) / 100.0;
+    p.flow_wave = r.real(P_FLOW_WAVE) / 100.0;
+    p.flow_scale = r.real(P_FLOW_SCALE) / 100.0;
+    p.flow_speed = r.real(P_FLOW_SPEED);
+    p.flow_detail = r.integer(P_FLOW_DETAIL);
+    p.flow_seed = r.integer(P_FLOW_SEED);
+    p.drift_angle = r.angle(P_DRIFT_ANGLE);
+    p.drift_speed = r.real(P_DRIFT_SPEED) / 100.0;
+    p.luma_response = r.real(P_LUMA_RESPONSE) / 100.0;
+    p.luma_softness = r.real(P_LUMA_SOFTNESS) / 100.0;
+    p.motion_response = r.real(P_MOTION_RESPONSE) / 100.0;
+    p.motion_sensitivity = r.real(P_MOTION_SENS);
+    p.inertia = r.real(P_INERTIA) / 100.0;
+    p.history = r.integer(P_HISTORY);
+    p.length_reaction = r.real(P_LENGTH_REACTION) / 100.0;
+    p.wave_reaction = r.real(P_WAVE_REACTION) / 100.0;
+    double pt[2];
+    r.point(P_PULL_POINT, pt);
+    p.pull_x = in->width > 0 ? pt[0] / in->width : 0.5;
+    p.pull_y = in->height > 0 ? pt[1] / in->height : 0.5;
+    p.pull_strength = r.real(P_PULL_STRENGTH) / 100.0;
+    p.pull_radius = r.real(P_PULL_RADIUS) / 100.0;
+    p.pull_length = r.real(P_PULL_LENGTH) / 100.0;
+    p.auto_strength = r.real(P_AUTO_STRENGTH) / 100.0;
+    p.base_follow = r.real(P_BASE_FOLLOW) / 100.0;
+    p.warp_levels = r.integer(P_WARP_LEVELS);
+
     if (in->downsample_x.den > 0 && in->downsample_x.num > 0)
         p.pixel_scale = static_cast<double>(in->downsample_x.num) / in->downsample_x.den;
     return p;
@@ -323,24 +421,26 @@ Params readParams(PF_InData* in) {
 // Pixel conversion (AE stores ARGB; the core wants RGBA floats)
 // ---------------------------------------------------------------------------------------------
 
-void readWorld(const PF_EffectWorld* w, PF_PixelFormat fmt, Image& out) {
-    out = Image(w->width, w->height, 4);
-    for (int y = 0; y < w->height; ++y) {
-        const char* row = reinterpret_cast<const char*>(w->data) + static_cast<size_t>(y) * w->rowbytes;
-        float* o = out.row(y);
-        for (int x = 0; x < w->width; ++x, o += 4) {
-            if (fmt == PF_PixelFormat_ARGB128) {
-                const PF_PixelFloat* p = reinterpret_cast<const PF_PixelFloat*>(row) + x;
-                o[0] = p->red; o[1] = p->green; o[2] = p->blue; o[3] = p->alpha;
-            } else if (fmt == PF_PixelFormat_ARGB64) {
-                const PF_Pixel16* p = reinterpret_cast<const PF_Pixel16*>(row) + x;
-                o[0] = p->red / kMax16; o[1] = p->green / kMax16; o[2] = p->blue / kMax16; o[3] = p->alpha / kMax16;
-            } else {
-                const PF_Pixel8* p = reinterpret_cast<const PF_Pixel8*>(row) + x;
-                o[0] = p->red / 255.0f; o[1] = p->green / 255.0f; o[2] = p->blue / 255.0f; o[3] = p->alpha / 255.0f;
-            }
+// One row of the world as float RGBA, premultiplied like After Effects stores it.
+void readRow(const PF_EffectWorld* w, PF_PixelFormat fmt, int y, float* o) {
+    const char* row = reinterpret_cast<const char*>(w->data) + static_cast<size_t>(y) * w->rowbytes;
+    for (int x = 0; x < w->width; ++x, o += 4) {
+        if (fmt == PF_PixelFormat_ARGB128) {
+            const PF_PixelFloat* p = reinterpret_cast<const PF_PixelFloat*>(row) + x;
+            o[0] = p->red; o[1] = p->green; o[2] = p->blue; o[3] = p->alpha;
+        } else if (fmt == PF_PixelFormat_ARGB64) {
+            const PF_Pixel16* p = reinterpret_cast<const PF_Pixel16*>(row) + x;
+            o[0] = p->red / kMax16; o[1] = p->green / kMax16; o[2] = p->blue / kMax16; o[3] = p->alpha / kMax16;
+        } else {
+            const PF_Pixel8* p = reinterpret_cast<const PF_Pixel8*>(row) + x;
+            o[0] = p->red / 255.0f; o[1] = p->green / 255.0f; o[2] = p->blue / 255.0f; o[3] = p->alpha / 255.0f;
         }
     }
+}
+
+void readWorld(const PF_EffectWorld* w, PF_PixelFormat fmt, Image& out) {
+    out = Image(w->width, w->height, 4);
+    for (int y = 0; y < w->height; ++y) readRow(w, fmt, y, out.row(y));
 }
 
 inline A_u_short to16(float v) { return static_cast<A_u_short>(std::min(std::max(v, 0.f), 1.f) * kMax16 + 0.5f); }
@@ -371,13 +471,16 @@ void writeWorld(const Image& img, PF_EffectWorld* w, PF_PixelFormat fmt, int dx,
 
 // AE hands over premultiplied colour. Non-linear input spaces must be decoded on straight colour,
 // so the wrapper converts around the core (which then runs in linear light, premultiplied).
-void decodeColor(Image& img, int cs) {
+void decodeRow(float* px, int count, int cs) {
     if (cs == timeyum::kCsLinear) return;
-    for (size_t i = 0; i < static_cast<size_t>(img.width) * img.height; ++i) {
-        float* p = img.data.data() + i * 4;
-        const float a = p[3];
-        for (int c = 0; c < 3; ++c) p[c] = a > 0.f ? timeyum::toLinear(p[c] / a, cs) * a : 0.f;
+    for (int i = 0; i < count; ++i, px += 4) {
+        const float a = px[3];
+        for (int c = 0; c < 3; ++c) px[c] = a > 0.f ? timeyum::toLinear(px[c] / a, cs) * a : 0.f;
     }
+}
+
+void decodeColor(Image& img, int cs) {
+    for (int y = 0; y < img.height; ++y) decodeRow(img.row(y), img.width, cs);
 }
 
 void encodeColor(Image& img, int cs) {
@@ -432,6 +535,20 @@ PF_Err updateParamsUI(PF_InData* in_data, PF_ParamDef* params[]) {
     for (int i : {P_SHAKE_AMOUNT, P_SHAKE_FREQ, P_SHAKE_SMOOTH, P_SHAKE_SEED, P_SHAKE_LENGTH, P_SHAKE_SMEAR, P_SHAKE_ANGLE,
                   P_SHAKE_TIMING, P_SHAKE_GHOST, P_SHAKE_ROLL, P_SHAKE_WEAVE_X, P_SHAKE_WEAVE_Y})
         setEnabled(in_data, params, suites, i, shake);
+    const bool warp = params[P_WARP]->u.bd.value != 0;
+    const bool lumaOn = params[P_LUMA_RESPONSE]->u.fs_d.value > 0.0;
+    const bool motionOn = params[P_MOTION_RESPONSE]->u.fs_d.value > 0.0;
+    const bool waveOn = params[P_FLOW_WAVE]->u.fs_d.value > 0.0;
+    const bool autoOn = params[P_AUTO_STRENGTH]->u.fs_d.value != 0.0;
+    for (int i = P_WARP_VIEW; i < P_WARP_END; ++i) setEnabled(in_data, params, suites, i, warp);
+    if (warp) {
+        setEnabled(in_data, params, suites, P_LUMA_SOFTNESS, lumaOn || motionOn || autoOn);
+        setEnabled(in_data, params, suites, P_MOTION_SENS, motionOn);
+        setEnabled(in_data, params, suites, P_INERTIA, lumaOn || motionOn || autoOn);
+        setEnabled(in_data, params, suites, P_HISTORY, motionOn || ((lumaOn || autoOn) && params[P_INERTIA]->u.fs_d.value > 0.0));
+        setEnabled(in_data, params, suites, P_LENGTH_REACTION, lumaOn || motionOn);
+        setEnabled(in_data, params, suites, P_WAVE_REACTION, waveOn && (lumaOn || motionOn));
+    }
     return PF_Err_NONE;
 }
 
@@ -462,6 +579,16 @@ PF_Err preRender(PF_InData* in_data, PF_OutData* out_data, PF_PreRenderExtra* ex
             ERR(PF_CHECKOUT_PARAM(in_data, i, in_data->current_time, in_data->time_step, in_data->time_scale, &d));
             ERR2(PF_CHECKIN_PARAM(in_data, &d));
         }
+        // The warp reacts to motion: ask for the frames before this one.
+        if (!err) {
+            const int need = timeyum::warpHistoryCount(readParams(in_data));
+            const A_long step = in_data->time_step > 0 ? in_data->time_step : in_data->time_scale / 24;
+            for (int i = 1; i <= need && !err; ++i) {
+                PF_CheckoutResult past;
+                ERR(extra->cb->checkout_layer(in_data->effect_ref, P_INPUT, i, &req, in_data->current_time - i * step, in_data->time_step,
+                                              in_data->time_scale, &past));
+            }
+        }
     }
     return err ? err : err2;
 }
@@ -490,7 +617,25 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
                 Image src, dst;
                 readWorld(input, fmt, src);
                 decodeColor(src, cs);
-                timeyum::process(p, src, dst, frame, fps);
+
+                const int need = timeyum::warpHistoryCount(p);
+                std::vector<timeyum::LumaGrid> history(need);
+                for (int i = 1; i <= need; ++i) {
+                    PF_EffectWorld* past = nullptr;
+                    if (extra->cb->checkout_layer_pixels(in_data->effect_ref, i, &past) != PF_Err_NONE) continue;
+                    if (past && past->width == input->width && past->height == input->height) {
+                        timeyum::LumaGridBuilder grid(past->width, past->height);
+                        std::vector<float> row(static_cast<size_t>(past->width) * 4);
+                        for (int y = 0; y < past->height; ++y) {
+                            readRow(past, fmt, y, row.data());
+                            decodeRow(row.data(), past->width, cs);
+                            grid.addRow(y, row.data(), 4, timeyum::kCsLinear);
+                        }
+                        history[i - 1] = grid.finish();
+                    }
+                    extra->cb->checkin_layer_pixels(in_data->effect_ref, i);
+                }
+                timeyum::process(p, src, dst, frame, fps, &history);
                 encodeColor(dst, cs);
 
                 // A buffer pixel x sits at layer coordinate x - origin_x, so the output pixel (0, 0)

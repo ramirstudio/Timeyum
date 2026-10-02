@@ -8,6 +8,7 @@ enum Profile { kProfileFade = 0, kProfileExponential = 1, kProfileCamera = 2, kP
 enum EdgeMode { kEdgeWrap = 0, kEdgeExtend = 1, kEdgeMirror = 2, kEdgeBlack = 3 };
 enum BlendMode { kBlendExposure = 0, kBlendAdd = 1, kBlendScreen = 2, kBlendLighten = 3 };
 enum ColorSpace { kCsLinear = 0, kCsSrgb = 1, kCsGamma24 = 2, kCsLogC3 = 3, kCsSLog3 = 4 };
+enum WarpView { kViewResult = 0, kViewLength = 1, kViewReaction = 2, kViewDisplacement = 3 };
 
 // Percentages are fractions (0.35 = 35%), angles are degrees. Lengths and offsets
 // are fractions of the frame height unless the name ends in _px.
@@ -81,6 +82,35 @@ struct Params {
     double shake_weave_x = 0.0;  // pixels
     double shake_weave_y = 1.5;  // pixels
     double shake_ghost = 0.0;
+
+    // Warp: streak length and a soft displacement that vary across the frame, driven by an
+    // animated flow, by the video itself (brightness, motion) and by interactive points.
+    bool warp = false;
+    double warp_amount = 1.0;         // master gain of everything below
+    double flow_length = 0.6;         // flow modulation of the streak length (+-60%)
+    double flow_wave = 0.012;         // flow displacement amplitude, fraction of the frame height
+    double flow_scale = 0.35;         // feature size of the flow, fraction of the frame height
+    double flow_speed = 0.25;         // flow evolution, lattice units per second
+    int flow_detail = 3;              // octaves
+    int flow_seed = 7;
+    double drift_angle = 90.0;        // direction the flow pattern travels, same convention as angle
+    double drift_speed = 0.0;         // frame heights per second
+    double luma_response = 0.5;       // reaction to brightness
+    double luma_softness = 0.04;      // blur of the reaction, fraction of the frame height
+    double motion_response = 0.5;     // reaction to frame to frame change
+    double motion_sensitivity = 4.0;
+    double inertia = 0.6;             // memory of past frames in the reaction, 0..1
+    int history = 4;                  // past frames the reaction may look at
+    double length_reaction = 0.8;     // how much the reaction lengthens the streaks
+    double wave_reaction = 0.7;       // how much the reaction gates the flow displacement
+    double pull_x = 0.5, pull_y = 0.5;  // interactive point, fractions of width and height
+    double pull_strength = 0.3;       // signed: > 0 bulges the image around the point, < 0 pinches it
+    double pull_radius = 0.45;        // fraction of the frame height
+    double pull_length = 0.5;         // streak lengthening around the point
+    double auto_strength = 0.0;       // signed pull toward the brightest area of the video
+    double base_follow = 0.25;        // share of the displacement applied to the sharp image
+    int warp_levels = 6;              // streak length steps blended per pixel (cost grows with it)
+    int warp_view = kViewResult;
 
     // Set by resolveShake
     double weave_x = 0.0;

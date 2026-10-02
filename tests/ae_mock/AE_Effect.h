@@ -66,6 +66,7 @@ struct PF_ParamDef {
         struct { A_Boolean value; } bd;
         struct { PF_Fixed value; } ad;
         struct { PF_Pixel8 value; } cd;
+        struct { PF_Fixed x_value; PF_Fixed y_value; } td;
         U() { std::memset(this, 0, sizeof(*this)); }
     } u;
     A_long ui_flags = 0, flags = 0;
@@ -124,6 +125,7 @@ inline std::vector<MockParam>& mockRecord() { static std::vector<MockParam> r; r
 #define PF_ADD_CHECKBOXX(NAME, DFLT, FLAGS, ID) MOCK_ADD("check", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_CHECKBOX(NAME, CBNAME, DFLT, FLAGS, ID) MOCK_ADD("check", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_ANGLE(NAME, DFLT, ID) MOCK_ADD("angle", NAME, DFLT, ID, 0)
+#define PF_ADD_POINT(NAME, X, Y, RESTRICT, ID) MOCK_ADD("point", NAME, (X) * 1000 + (Y), ID, 0)
 #define PF_ADD_COLOR(NAME, R, G, B, ID) MOCK_ADD("color", NAME, (R) * 65536 + (G) * 256 + (B), ID, 0)
 #define PF_ADD_SLIDER(NAME, VMIN, VMAX, SMIN, SMAX, DFLT, ID) MOCK_ADD("int", NAME, DFLT, ID, 0)
 #define PF_ADD_TOPIC(NAME, ID) MOCK_ADD("topic", NAME, 0, ID, 0)

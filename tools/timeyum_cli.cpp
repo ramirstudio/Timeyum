@@ -1,5 +1,7 @@
 // Command line front end for the Timeyum core.
 //   timeyum_cli in.ppm out.ppm length=0.8 profile=camera timing_shift=100 frame=12 fps=24
+//   timeyum_cli in.ppm out.ppm warp=1 prev=f0011.ppm,f0010.ppm frame=12      (warp reaction to the video)
+//   timeyum_cli --seq in_%04d.ppm out_%04d.ppm 1 48 warp=1 fps=24            (a sequence, history is automatic)
 // Formats: .ppm (8 bit RGB), .pam (8 bit RGB or RGBA), .pfm (float RGB), .tyf (float, any 3-4 channels).
 // 8 bit files are read as sRGB, float files as linear, unless space= is given.
 
@@ -84,7 +86,7 @@ bool readImage(const std::string& path, Image& img, bool& isFloat) {
                 else if (k == "MAXVAL") maxv = std::atoi(v.c_str());
             }
         }
-        in.get();
+        // token() already consumed the single whitespace byte that ends the header
         if (maxv != 255 || w <= 0 || h <= 0 || c < 3 || c > 4) return fail("only 8 bit RGB/RGBA PNM is supported");
         std::vector<unsigned char> raw(static_cast<size_t>(w) * h * c);
         in.read(reinterpret_cast<char*>(raw.data()), raw.size());
@@ -99,7 +101,6 @@ bool readImage(const std::string& path, Image& img, bool& isFloat) {
         if (!token(in, a) || !token(in, b) || !token(in, s)) return fail("bad PFM header");
         const int w = std::atoi(a.c_str()), h = std::atoi(b.c_str());
         if (std::atof(s.c_str()) > 0) return fail("big endian PFM is not supported");
-        in.get();
         img = Image(w, h, 3);
         for (int y = h - 1; y >= 0; --y) in.read(reinterpret_cast<char*>(img.row(y)), sizeof(float) * w * 3);
         isFloat = true;
@@ -181,6 +182,11 @@ std::map<std::string, Setter> buildSetters() {
     BOOL(shake); REAL(shake_amount); REAL(shake_freq); REAL(shake_smooth); INT(shake_seed); REAL(shake_length);
     REAL(shake_angle); REAL(shake_smear); REAL(shake_timing); REAL(shake_roll); REAL(shake_weave_x); REAL(shake_weave_y);
     REAL(shake_ghost); REAL(pixel_scale);
+    BOOL(warp); REAL(warp_amount); REAL(flow_length); REAL(flow_wave); REAL(flow_scale); REAL(flow_speed); INT(flow_detail);
+    INT(flow_seed); REAL(drift_angle); REAL(drift_speed); REAL(luma_response); REAL(luma_softness); REAL(motion_response);
+    REAL(motion_sensitivity); REAL(inertia); INT(history); REAL(length_reaction); REAL(wave_reaction); REAL(pull_x);
+    REAL(pull_y); REAL(pull_strength); REAL(pull_radius); REAL(pull_length); REAL(auto_strength); REAL(base_follow);
+    INT(warp_levels);
 #undef REAL
 #undef INT
 #undef BOOL
@@ -188,6 +194,7 @@ std::map<std::string, Setter> buildSetters() {
     m["edge"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"wrap", "extend", "mirror", "black"}, p.edge); };
     m["blend"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"exposure", "add", "screen", "lighten"}, p.blend); };
     m["space"] = m["colorspace"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"linear", "srgb", "gamma24", "logc3", "slog3"}, p.colorspace); };
+    m["warp_view"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"result", "length", "reaction", "displacement"}, p.warp_view); };
     m["curve"] = [](Params& p, const std::string& v) { p.curve = numbers(v); return true; };
     m["tint"] = [](Params& p, const std::string& v) {
         const auto n = numbers(v);
@@ -200,38 +207,97 @@ std::map<std::string, Setter> buildSetters() {
 
 }  // namespace
 
+bool applyArgs(const std::map<std::string, Setter>& setters, int argc, char** argv, int first, Params& p, double& frame,
+               double& fps, bool& spaceGiven, std::vector<std::string>& prev) {
+    for (int i = first; i < argc; ++i) {
+        const std::string arg = argv[i];
+        const size_t eq = arg.find('=');
+        if (eq == std::string::npos) return fail("expected key=value: " + arg);
+        const std::string k = arg.substr(0, eq), v = arg.substr(eq + 1);
+        if (k == "frame") frame = std::atof(v.c_str());
+        else if (k == "fps") fps = std::atof(v.c_str());
+        else if (k == "threads") setMaxThreads(std::atoi(v.c_str()));
+        else if (k == "prev") {
+            std::stringstream ss(v);
+            std::string part;
+            while (std::getline(ss, part, ',')) prev.push_back(part);
+        } else {
+            const auto it = setters.find(k);
+            if (it == setters.end() || !it->second(p, v)) return fail("unknown or invalid parameter: " + arg);
+            if (k == "space" || k == "colorspace") spaceGiven = true;
+        }
+    }
+    return true;
+}
+
+std::string numbered(const std::string& pattern, int n) {
+    char buf[1024];
+    std::snprintf(buf, sizeof(buf), pattern.c_str(), n);
+    return buf;
+}
+
 int main(int argc, char** argv) {
     const auto setters = buildSetters();
     if (argc >= 2 && std::string(argv[1]) == "--list") {
         for (const auto& kv : setters) std::cout << kv.first << "\n";
-        std::cout << "frame\nfps\nthreads\n";
+        std::cout << "frame\nfps\nthreads\nprev\n";
         return 0;
     }
-    if (argc < 3) {
-        std::cerr << "usage: timeyum_cli in out [key=value ...] | --list\n";
+    const bool seq = argc >= 2 && std::string(argv[1]) == "--seq";
+    if ((!seq && argc < 3) || (seq && argc < 6)) {
+        std::cerr << "usage: timeyum_cli in out [key=value ...] | --seq in_%04d out_%04d first last [key=value ...] | --list\n";
         return 2;
     }
     Params p;
     double frame = 0.0, fps = 24.0;
     bool spaceGiven = false;
-    for (int i = 3; i < argc; ++i) {
-        const std::string arg = argv[i];
-        const size_t eq = arg.find('=');
-        if (eq == std::string::npos) return fail("expected key=value: " + arg), 2;
-        const std::string k = arg.substr(0, eq), v = arg.substr(eq + 1);
-        if (k == "frame") frame = std::atof(v.c_str());
-        else if (k == "fps") fps = std::atof(v.c_str());
-        else if (k == "threads") setMaxThreads(std::atoi(v.c_str()));
-        else {
-            const auto it = setters.find(k);
-            if (it == setters.end() || !it->second(p, v)) return fail("unknown or invalid parameter: " + arg), 2;
-            if (k == "space" || k == "colorspace") spaceGiven = true;
+    std::vector<std::string> prev;
+    if (!applyArgs(setters, argc, argv, seq ? 6 : 3, p, frame, fps, spaceGiven, prev)) return 2;
+
+    if (!seq) {
+        Image src, dst;
+        bool isFloat = false;
+        if (!readImage(argv[1], src, isFloat)) return 1;
+        if (!spaceGiven) p.colorspace = isFloat ? kCsLinear : kCsSrgb;
+        std::vector<LumaGrid> history;
+        for (const std::string& path : prev) {
+            Image h;
+            bool f = false;
+            if (!readImage(path, h, f)) return 1;
+            history.push_back(h.width == src.width && h.height == src.height ? makeLumaGrid(h, p.colorspace) : LumaGrid());
         }
+        process(p, src, dst, frame, fps, &history);
+        return writeImage(argv[2], dst, isFloat) ? 0 : 1;
     }
-    Image src, dst;
-    bool isFloat = false;
-    if (!readImage(argv[1], src, isFloat)) return 1;
-    if (!spaceGiven) p.colorspace = isFloat ? kCsLinear : kCsSrgb;
-    process(p, src, dst, frame, fps);
-    return writeImage(argv[2], dst, isFloat) ? 0 : 1;
+
+    const std::string inPattern = argv[2], outPattern = argv[3];
+    const int first = std::atoi(argv[4]), last = std::atoi(argv[5]);
+    const int need = warpHistoryCount(p);
+    std::map<int, LumaGrid> grids;
+    auto gridOf = [&](int n, int colorspace, int w, int h) -> LumaGrid {
+        auto it = grids.find(n);
+        if (it != grids.end()) return it->second;
+        Image img;
+        bool f = false;
+        LumaGrid g;
+        {
+            std::ifstream probe(numbered(inPattern, n));
+            if (probe && readImage(numbered(inPattern, n), img, f) && img.width == w && img.height == h) g = makeLumaGrid(img, colorspace);
+        }
+        grids[n] = g;
+        return g;
+    };
+    for (int n = first; n <= last; ++n) {
+        Image src, dst;
+        bool isFloat = false;
+        if (!readImage(numbered(inPattern, n), src, isFloat)) return 1;
+        Params pf = p;
+        if (!spaceGiven) pf.colorspace = isFloat ? kCsLinear : kCsSrgb;
+        std::vector<LumaGrid> history;
+        for (int j = 1; j <= need; ++j) history.push_back(gridOf(n - j, pf.colorspace, src.width, src.height));
+        process(pf, src, dst, n, fps, &history);
+        if (!writeImage(numbered(outPattern, n), dst, isFloat)) return 1;
+        grids.erase(n - need - 1);
+    }
+    return 0;
 }

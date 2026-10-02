@@ -21,7 +21,8 @@ add_library(timeyum_core STATIC
   core/Kernel.cpp
   core/Noise.cpp
   core/Parallel.cpp
-  core/Timeyum.cpp)
+  core/Timeyum.cpp
+  core/Warp.cpp)
 target_include_directories(timeyum_core PUBLIC core)
 target_link_libraries(timeyum_core PUBLIC Threads::Threads)
 if(MSVC)
@@ -37,6 +38,9 @@ enable_testing()
 add_executable(timeyum_test_fft tests/test_fft.cpp)
 target_link_libraries(timeyum_test_fft PRIVATE timeyum_core)
 add_test(NAME fft COMMAND timeyum_test_fft)
+add_executable(timeyum_test_warp tests/test_warp.cpp)
+target_link_libraries(timeyum_test_warp PRIVATE timeyum_core)
+add_test(NAME warp COMMAND timeyum_test_warp)
 # The wrapper logic (parameters, pixel conversion) runs against a mock of the AE SDK.
 add_executable(timeyum_test_ae tests/test_ae_wrapper.cpp)
 target_include_directories(timeyum_test_ae PRIVATE tests/ae_mock ae)

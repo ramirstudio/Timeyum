@@ -115,10 +115,11 @@ std::vector<Cf> kernelSpectrum(const StreakKernel& k, const double dir[2], const
     return spec;
 }
 
-// Convolves up to two real planes at once: a goes in the real part, b in the imaginary part.
-void convolvePair(const Plane& a, const Plane* b, Plane& outA, Plane* outB, int W, int H, const Domain& d,
-                  const std::vector<Cf>& spec, const Fft& fx, const Fft& fy) {
-    std::vector<Cf> z(static_cast<size_t>(d.w) * d.h);
+// Writes a (and b in the imaginary part) into the FFT domain, weighting each source pixel by the
+// share of it that belongs to the given length level.
+void fillDomain(std::vector<Cf>& z, const Plane& a, const Plane* b, int W, const Domain& d, const Plane* mPix,
+                const std::vector<double>* levels, size_t level) {
+    z.resize(static_cast<size_t>(d.w) * d.h);
     parallelFor(d.h, [&](int y) {
         const int sy = d.rowMap[y];
         Cf* row = z.data() + static_cast<size_t>(y) * d.w;
@@ -132,20 +133,14 @@ void convolvePair(const Plane& a, const Plane* b, Plane& outA, Plane* outB, int 
                 row[x] = Cf{};
             } else {
                 const size_t i = static_cast<size_t>(sy) * W + sx;
-                row[x] = {a[i], b ? (*b)[i] : 0.f};
+                const float w = mPix ? levelWeight(*levels, level, (*mPix)[i]) : 1.f;
+                row[x] = {a[i] * w, b ? (*b)[i] * w : 0.f};
             }
         }
     });
-    fft2d(z.data(), fx, fy, false);
-    parallelFor(d.h, [&](int y) {
-        Cf* row = z.data() + static_cast<size_t>(y) * d.w;
-        const Cf* s = spec.data() + static_cast<size_t>(y) * d.w;
-        for (int x = 0; x < d.w; ++x) {
-            const Cf v = row[x];
-            row[x] = {v.r * s[x].r - v.i * s[x].i, v.r * s[x].i + v.i * s[x].r};
-        }
-    });
-    fft2d(z.data(), fx, fy, true);
+}
+
+void extractDomain(const std::vector<Cf>& z, Plane& outA, Plane* outB, int W, int H, const Domain& d) {
     outA.resize(static_cast<size_t>(W) * H);
     if (outB) outB->resize(static_cast<size_t>(W) * H);
     parallelFor(H, [&](int y) {
@@ -156,6 +151,36 @@ void convolvePair(const Plane& a, const Plane* b, Plane& outA, Plane* outB, int 
         }
     });
 }
+
+// ---------------------------------------------------------------------------------------------
+// Bilinear sampling with an edge policy
+// ---------------------------------------------------------------------------------------------
+
+struct Sampler {
+    int W, H, mode;  // mode: kEdgeWrap, kEdgeExtend, kEdgeMirror, kEdgeBlack
+
+    bool index(int64_t& i, int n) const {
+        if (i >= 0 && i < n) return true;
+        switch (mode) {
+            case kEdgeWrap: i = wrapIndex(i, n); return true;
+            case kEdgeMirror: i = reflectIndex(i, n); return true;
+            case kEdgeBlack: return false;
+            default: i = i < 0 ? 0 : n - 1; return true;
+        }
+    }
+    float at(const Plane& pl, int64_t x, int64_t y) const {
+        if (!index(x, W) || !index(y, H)) return 0.f;
+        return pl[static_cast<size_t>(y) * W + x];
+    }
+    float bilinear(const Plane& pl, double x, double y) const {
+        const double fx = std::floor(x), fy = std::floor(y);
+        const int64_t ix = static_cast<int64_t>(fx), iy = static_cast<int64_t>(fy);
+        const float tx = static_cast<float>(x - fx), ty = static_cast<float>(y - fy);
+        const float a = at(pl, ix, iy), b = at(pl, ix + 1, iy), c = at(pl, ix, iy + 1), d = at(pl, ix + 1, iy + 1);
+        const float top = a + (b - a) * tx, bot = c + (d - c) * tx;
+        return top + (bot - top) * ty;
+    }
+};
 
 // ---------------------------------------------------------------------------------------------
 // Frame displacement
@@ -280,7 +305,45 @@ Params resolveParams(const Params& in, double frame, double fps) {
     return p;
 }
 
-void process(const Params& params, const Image& srcIn, Image& dst, double frame, double fps) {
+namespace {
+
+// Renders one of the debugging views of the warp field.
+Image warpView(const Params& p, const Image& src, const WarpField& f, int W, int H) {
+    const int C = src.channels;
+    Image out(W, H, C);
+    const double dmax = std::max(f.dispMax, 1e-3);
+    const double lmax = std::max(f.mMax, 1.0);
+    parallelFor(H, [&](int y) {
+        const float* s = src.row(y);
+        float* o = out.row(y);
+        const double v = (y + 0.5) / f.cell;
+        for (int x = 0; x < W; ++x) {
+            const double u = (x + 0.5) / f.cell;
+            float rgb[3];
+            if (p.warp_view == kViewLength) {
+                rgb[0] = rgb[1] = rgb[2] = static_cast<float>(gridSample(f.length, f.gw, f.gh, u, v) / lmax);
+            } else if (p.warp_view == kViewReaction) {
+                rgb[0] = rgb[1] = rgb[2] = gridSample(f.reaction, f.gw, f.gh, u, v);
+            } else {
+                rgb[0] = static_cast<float>(0.5 + 0.5 * gridSample(f.dx, f.gw, f.gh, u, v) / dmax);
+                rgb[1] = static_cast<float>(0.5 + 0.5 * gridSample(f.dy, f.gw, f.gh, u, v) / dmax);
+                rgb[2] = 0.5f;
+            }
+            float* px = o + static_cast<size_t>(x) * C;
+            px[0] = rgb[0];
+            px[1] = rgb[1];
+            px[2] = rgb[2];
+            if (C >= 4) px[3] = 1.f;
+            for (int c = 4; c < C; ++c) px[c] = s[static_cast<size_t>(x) * C + c];
+        }
+    });
+    return out;
+}
+
+}  // namespace
+
+void process(const Params& params, const Image& srcIn, Image& dst, double frame, double fps,
+             const std::vector<LumaGrid>* history) {
     const Params p = resolveParams(params, frame, fps);
     const int W = srcIn.width, H = srcIn.height, C = srcIn.channels;
     if (W <= 0 || H <= 0 || C < 3) {
@@ -338,6 +401,24 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
         }
     });
 
+    // Warp field: how the streak length and the displacement vary across the frame.
+    const bool warpOn = p.warp && p.warp_amount > 0.0;
+    WarpField field;
+    if (warpOn) {
+        LumaGridBuilder gb(W, H);
+        for (int y = 0; y < H; ++y) {
+            const size_t o = static_cast<size_t>(y) * W;
+            gb.addRowPlanar(y, rgb[0].data() + o, rgb[1].data() + o, rgb[2].data() + o);
+        }
+        static const std::vector<LumaGrid> kNoHistory;
+        field = buildWarpField(p, W, H, gb.finish(), history ? *history : kNoHistory, frame / std::max(fps, 1e-6));
+        if (p.warp_view != kViewResult) {
+            dst = warpView(p, src, field, W, H);
+            return;
+        }
+    }
+    const bool modulate = warpOn && field.modulates;
+
     const double rad = p.angle * kPi / 180.0;
     const double dir[2] = {std::cos(rad), -std::sin(rad)};
     const double perp[2] = {-dir[1], dir[0]};
@@ -354,73 +435,200 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
         }
         scaleIdx[c] = static_cast<int>(it - distinct.begin());
     }
-    std::vector<StreakKernel> kernels;
-    for (double s : distinct) kernels.push_back(streakKernel(p, H, std::max(s, 0.0)));
     const int midIdx = scaleIdx[1];
-    const double share = kernels[midIdx].share;
+
+    // Streak length levels. Without modulation there is one level: the plain effect.
+    const std::vector<double> lvM = modulate ? buildLevels(field.mMin, field.mMax, p.warp_levels) : std::vector<double>{1.0};
+    struct Level {
+        std::vector<StreakKernel> kernels;
+        double share = 0.0;
+        bool active = false;
+    };
+    std::vector<Level> levels(lvM.size());
+    bool anyActive = false;
+    double maxOff = 0.0;
+    for (size_t li = 0; li < lvM.size(); ++li) {
+        Level& lv = levels[li];
+        if (lvM[li] <= 1e-4) continue;
+        if (modulate && !levelSupported(lvM, li, field.actualMin, field.actualMax)) continue;
+        Params pl = p;
+        pl.length = p.length * lvM[li];
+        for (double s : distinct) lv.kernels.push_back(streakKernel(pl, H, std::max(s, 0.0)));
+        lv.share = lv.kernels[midIdx].share;
+        lv.active = lv.share > 0.0 && !lv.kernels[midIdx].taps.empty();
+        if (!lv.active) continue;
+        anyActive = true;
+        for (const auto& k : lv.kernels)
+            for (const auto& t : k.taps) maxOff = std::max(maxOff, std::fabs(t.offset));
+    }
+
+    // Per pixel length multiplier and displacement from the grid.
+    Plane mPix, dxPix, dyPix;
+    if (modulate) {
+        mPix.resize(N);
+        parallelFor(H, [&](int y) {
+            const double v = (y + 0.5) / field.cell;
+            for (int x = 0; x < W; ++x) mPix[static_cast<size_t>(y) * W + x] = gridSample(field.length, field.gw, field.gh, (x + 0.5) / field.cell, v);
+        });
+    }
+    const bool displace = warpOn && field.displaces && (anyActive || p.base_follow > 0.0);
+    if (displace) {
+        dxPix.resize(N);
+        dyPix.resize(N);
+        parallelFor(H, [&](int y) {
+            const double v = (y + 0.5) / field.cell;
+            for (int x = 0; x < W; ++x) {
+                const double u = (x + 0.5) / field.cell;
+                dxPix[static_cast<size_t>(y) * W + x] = gridSample(field.dx, field.gw, field.gh, u, v);
+                dyPix[static_cast<size_t>(y) * W + x] = gridSample(field.dy, field.gw, field.gh, u, v);
+            }
+        });
+    }
 
     Plane outRgb[3];
-    for (int c = 0; c < 3; ++c) outRgb[c] = rgb[c];
     Plane outAlpha = alpha;
+    Plane smear[3], alphaMoving, alphaSmear;
 
-    if (share > 0.0) {
-        double maxOff = 0.0;
-        for (const auto& k : kernels)
-            for (const auto& t : k.taps) maxOff = std::max(maxOff, std::fabs(t.offset));
+    if (anyActive) {
         const Domain dom = makeDomain(p, W, H, maxOff, dir);
         const Fft fx(dom.w), fy(dom.h);
-        std::vector<std::vector<Cf>> spectra;
-        for (const auto& k : kernels) spectra.push_back(kernelSpectrum(k, dir, dom, std::max(p.cleanup, 0.0), perp, fx, fy));
+        const std::vector<double>* lvPtr = &lvM;
 
-        // Planes sharing a kernel go through the FFT in pairs.
-        Plane smear[3], alphaMoving, alphaSmear;
-        struct Job { const Plane* in; Plane* out; int spec; };
-        std::vector<Job> jobs;
-        for (int c = 0; c < 3; ++c) jobs.push_back({&moving[c], &smear[c], scaleIdx[c]});
         if (alphaOn) {
             alphaMoving.resize(N);
             for (size_t i = 0; i < N; ++i) alphaMoving[i] = useThreshold ? alpha[i] * ratio[i] : alpha[i];
-            jobs.push_back({&alphaMoving, &alphaSmear, midIdx});
         }
-        std::vector<bool> done(jobs.size(), false);
-        for (size_t a = 0; a < jobs.size(); ++a) {
-            if (done[a]) continue;
-            size_t b = jobs.size();
-            for (size_t j = a + 1; j < jobs.size(); ++j)
-                if (!done[j] && jobs[j].spec == jobs[a].spec) { b = j; break; }
-            done[a] = true;
-            if (b < jobs.size()) {
-                done[b] = true;
-                convolvePair(*jobs[a].in, jobs[b].in, *jobs[a].out, jobs[b].out, W, H, dom, spectra[jobs[a].spec], fx, fy);
+        // Planes sharing a kernel go through the FFT in pairs.
+        struct Job { const Plane* a; const Plane* b; Plane* outA; Plane* outB; int cls; };
+        struct Plain { const Plane* in; Plane* out; int cls; };
+        std::vector<Plain> planes;
+        for (int c = 0; c < 3; ++c) planes.push_back({&moving[c], &smear[c], scaleIdx[c]});
+        if (alphaOn) planes.push_back({&alphaMoving, &alphaSmear, midIdx});
+        std::vector<Job> jobs;
+        std::vector<bool> taken(planes.size(), false);
+        for (size_t a = 0; a < planes.size(); ++a) {
+            if (taken[a]) continue;
+            taken[a] = true;
+            size_t b = planes.size();
+            for (size_t j = a + 1; j < planes.size(); ++j)
+                if (!taken[j] && planes[j].cls == planes[a].cls) { b = j; break; }
+            if (b < planes.size()) {
+                taken[b] = true;
+                jobs.push_back({planes[a].in, planes[b].in, planes[a].out, planes[b].out, planes[a].cls});
             } else {
-                convolvePair(*jobs[a].in, nullptr, *jobs[a].out, nullptr, W, H, dom, spectra[jobs[a].spec], fx, fy);
+                jobs.push_back({planes[a].in, nullptr, planes[a].out, nullptr, planes[a].cls});
             }
         }
 
-        const float gain = static_cast<float>(std::max(p.gain, 0.0));
-        const float sat = static_cast<float>(p.saturation);
-        const bool doSat = std::fabs(sat - 1.f) > 1e-4f;
-        const float tint[3] = {static_cast<float>(p.tint[0]), static_cast<float>(p.tint[1]), static_cast<float>(p.tint[2])};
-        const bool doTint = !(std::fabs(tint[0] - 1.f) < 1e-5f && std::fabs(tint[1] - 1.f) < 1e-5f && std::fabs(tint[2] - 1.f) < 1e-5f);
-        const bool doBreakup = p.breakup > 0.0;
-        const double bscale = std::max(p.breakup_scale, 0.5);
-        const float fshare = static_cast<float>(share);
-        const int blend = p.blend;
+        // The levels are summed in the frequency domain, so each job needs one inverse transform.
+        std::vector<std::vector<Cf>> acc(jobs.size());
+        std::vector<bool> started(jobs.size(), false);
+        std::vector<Cf> tmp;
+        for (size_t li = 0; li < levels.size(); ++li) {
+            if (!levels[li].active) continue;
+            std::vector<std::vector<Cf>> spectra(distinct.size());
+            std::vector<bool> needed(distinct.size(), false);
+            for (const Job& j : jobs) needed[j.cls] = true;
+            for (size_t k = 0; k < distinct.size(); ++k)
+                if (needed[k]) spectra[k] = kernelSpectrum(levels[li].kernels[k], dir, dom, std::max(p.cleanup, 0.0), perp, fx, fy);
+            for (size_t ji = 0; ji < jobs.size(); ++ji) {
+                const Job& j = jobs[ji];
+                std::vector<Cf>& z = started[ji] ? tmp : acc[ji];
+                fillDomain(z, *j.a, j.b, W, dom, modulate ? &mPix : nullptr, lvPtr, li);
+                fft2d(z.data(), fx, fy, false);
+                const std::vector<Cf>& sp = spectra[j.cls];
+                parallelFor(dom.h, [&](int y) {
+                    Cf* row = z.data() + static_cast<size_t>(y) * dom.w;
+                    const Cf* s = sp.data() + static_cast<size_t>(y) * dom.w;
+                    for (int x = 0; x < dom.w; ++x) {
+                        const Cf v = row[x];
+                        row[x] = {v.r * s[x].r - v.i * s[x].i, v.r * s[x].i + v.i * s[x].r};
+                    }
+                });
+                if (started[ji]) {
+                    Cf* a = acc[ji].data();
+                    parallelFor(dom.h, [&](int y) {
+                        const size_t o = static_cast<size_t>(y) * dom.w;
+                        for (int x = 0; x < dom.w; ++x) {
+                            a[o + x].r += tmp[o + x].r;
+                            a[o + x].i += tmp[o + x].i;
+                        }
+                    });
+                }
+                started[ji] = true;
+            }
+        }
+        for (size_t ji = 0; ji < jobs.size(); ++ji) {
+            fft2d(acc[ji].data(), fx, fy, true);
+            extractDomain(acc[ji], *jobs[ji].outA, jobs[ji].outB, W, H, dom);
+            std::vector<Cf>().swap(acc[ji]);
+        }
+    }
 
-        parallelFor(H, [&](int y) {
-            for (int x = 0; x < W; ++x) {
-                const size_t i = static_cast<size_t>(y) * W + x;
-                float s[3] = {std::max(smear[0][i], 0.f), std::max(smear[1][i], 0.f), std::max(smear[2][i], 0.f)};
+    // Compose: base (the sharp image minus the exposure that moved) and smear.
+    const bool haveSmear = anyActive;
+    const float gain = static_cast<float>(std::max(p.gain, 0.0));
+    const float sat = static_cast<float>(p.saturation);
+    const bool doSat = std::fabs(sat - 1.f) > 1e-4f;
+    const float tint[3] = {static_cast<float>(p.tint[0]), static_cast<float>(p.tint[1]), static_cast<float>(p.tint[2])};
+    const bool doTint = !(std::fabs(tint[0] - 1.f) < 1e-5f && std::fabs(tint[1] - 1.f) < 1e-5f && std::fabs(tint[2] - 1.f) < 1e-5f);
+    const bool doBreakup = p.breakup > 0.0;
+    const double bscale = std::max(p.breakup_scale, 0.5);
+    const int blend = p.blend;
+    const float baseFollow = static_cast<float>(std::min(std::max(p.base_follow, 0.0), 1.0));
+
+    for (int c = 0; c < 3; ++c) outRgb[c].resize(N);
+    Plane baseP[4], smearP[4];  // only used when the result is displaced
+    if (displace) {
+        for (int c = 0; c < 4; ++c) {
+            if (c == 3 && !alphaOn) break;
+            baseP[c].resize(N);
+            if (haveSmear) smearP[c].resize(N);
+        }
+    }
+
+    auto blendPixel = [&](size_t i, const float* b, const float* s, float ba, float sa, float* o, float& oa) {
+        for (int c = 0; c < 3; ++c) {
+            switch (blend) {
+                case kBlendScreen: o[c] = b[c] + s[c] - b[c] * clampf(s[c], 0.f, 1.f); break;
+                case kBlendLighten: o[c] = std::max(b[c], s[c]); break;
+                default: o[c] = b[c] + s[c]; break;
+            }
+        }
+        if (alphaOn) {
+            const float v = blend == kBlendExposure ? ba + sa : ba + sa - ba * clampf(sa, 0.f, 1.f);
+            oa = clampf(v, 0.f, 1.f);
+        }
+        (void)i;
+    };
+
+    parallelFor(H, [&](int y) {
+        for (int x = 0; x < W; ++x) {
+            const size_t i = static_cast<size_t>(y) * W + x;
+            float shareEff = 0.f;
+            if (haveSmear) {
+                if (modulate) {
+                    for (size_t li = 0; li < levels.size(); ++li)
+                        if (levels[li].active) shareEff += levelWeight(lvM, li, mPix[i]) * static_cast<float>(levels[li].share);
+                } else {
+                    shareEff = static_cast<float>(levels[0].share);
+                }
+            }
+            float b[3], s[3] = {0.f, 0.f, 0.f}, ba = 0.f, sa = 0.f;
+            for (int c = 0; c < 3; ++c) b[c] = (blend == kBlendExposure && haveSmear) ? rgb[c][i] - shareEff * moving[c][i] : rgb[c][i];
+            if (alphaOn) ba = (blend == kBlendExposure && haveSmear) ? alpha[i] - shareEff * alphaMoving[i] : alpha[i];
+            if (haveSmear) {
+                for (int c = 0; c < 3; ++c) s[c] = std::max(smear[c][i], 0.f);
                 if (gain != 1.f) for (float& v : s) v *= gain;
                 if (doBreakup) {
-                    double c;
-                    if (std::fabs(perp[1]) < 1e-6) c = x * perp[0];
-                    else if (std::fabs(perp[0]) < 1e-6) c = y * perp[1];
-                    else c = x * perp[0] + y * perp[1];
-                    const double n1 = valueNoise(p.breakup_seed, 101, c / bscale, 1.0);
-                    const double n2 = valueNoise(p.breakup_seed, 202, c / (bscale * 0.37), 1.0);
-                    const float field = static_cast<float>(0.7 * n1 + 0.3 * n2);
-                    const float m = std::max(1.f + static_cast<float>(p.breakup) * field, 0.f);
+                    double cc;
+                    if (std::fabs(perp[1]) < 1e-6) cc = x * perp[0];
+                    else if (std::fabs(perp[0]) < 1e-6) cc = y * perp[1];
+                    else cc = x * perp[0] + y * perp[1];
+                    const double n1 = valueNoise(p.breakup_seed, 101, cc / bscale, 1.0);
+                    const double n2 = valueNoise(p.breakup_seed, 202, cc / (bscale * 0.37), 1.0);
+                    const float field2 = static_cast<float>(0.7 * n1 + 0.3 * n2);
+                    const float m = std::max(1.f + static_cast<float>(p.breakup) * field2, 0.f);
                     for (float& v : s) v *= m;
                 }
                 if (doSat) {
@@ -428,26 +636,60 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
                     for (float& v : s) v = std::max(lum + (v - lum) * sat, 0.f);
                 }
                 if (doTint) for (int c = 0; c < 3; ++c) s[c] *= tint[c];
+                if (alphaOn) sa = std::max(alphaSmear[i], 0.f) * gain;
+            }
+            if (displace) {
                 for (int c = 0; c < 3; ++c) {
-                    const float base = rgb[c][i];
-                    float o;
-                    switch (blend) {
-                        case kBlendAdd: o = base + s[c]; break;
-                        case kBlendScreen: o = base + s[c] - base * clampf(s[c], 0.f, 1.f); break;
-                        case kBlendLighten: o = std::max(base, s[c]); break;
-                        default: o = base - fshare * moving[c][i] + s[c]; break;
-                    }
-                    outRgb[c][i] = o;
+                    baseP[c][i] = b[c];
+                    if (haveSmear) smearP[c][i] = s[c];
                 }
                 if (alphaOn) {
-                    const float a = alpha[i];
-                    const float am = alphaMoving[i];
-                    const float as = std::max(alphaSmear[i], 0.f) * gain;
-                    const float o = blend == kBlendExposure ? a - fshare * am + as : a + as - a * clampf(as, 0.f, 1.f);
-                    outAlpha[i] = clampf(o, 0.f, 1.f);
+                    baseP[3][i] = ba;
+                    if (haveSmear) smearP[3][i] = sa;
                 }
+            } else {
+                float o[3], oa = 0.f;
+                if (haveSmear) {
+                    blendPixel(i, b, s, ba, sa, o, oa);
+                } else {
+                    for (int c = 0; c < 3; ++c) o[c] = b[c];
+                    oa = ba;
+                }
+                for (int c = 0; c < 3; ++c) outRgb[c][i] = o[c];
+                if (alphaOn) outAlpha[i] = alphaOn && haveSmear ? oa : alpha[i];
             }
-        });
+        }
+    });
+
+    if (displace) {
+        // The smear follows the full displacement, the sharp image only baseFollow of it.
+        const Sampler smearSampler{W, H, p.edge};
+        const Sampler baseSampler{W, H, p.edge == kEdgeWrap ? static_cast<int>(kEdgeWrap) : static_cast<int>(kEdgeExtend)};
+        parallelFor(H, [&](int y) {
+            for (int x = 0; x < W; ++x) {
+                const size_t i = static_cast<size_t>(y) * W + x;
+                const double dx = dxPix[i], dy = dyPix[i];
+                float b[3], s[3] = {0.f, 0.f, 0.f}, ba = 0.f, sa = 0.f;
+                for (int c = 0; c < 3; ++c) {
+                    b[c] = baseFollow > 0.f ? baseSampler.bilinear(baseP[c], x + baseFollow * dx, y + baseFollow * dy) : baseP[c][i];
+                    if (haveSmear) s[c] = smearSampler.bilinear(smearP[c], x + dx, y + dy);
+                }
+                if (alphaOn) {
+                    ba = baseFollow > 0.f ? baseSampler.bilinear(baseP[3], x + baseFollow * dx, y + baseFollow * dy) : baseP[3][i];
+                    if (haveSmear) sa = smearSampler.bilinear(smearP[3], x + dx, y + dy);
+                }
+                float o[3], oa = 0.f;
+                if (haveSmear) {
+                    blendPixel(i, b, s, ba, sa, o, oa);
+                } else {
+                    for (int c = 0; c < 3; ++c) o[c] = b[c];
+                    oa = ba;
+                }
+                for (int c = 0; c < 3; ++c) outRgb[c][i] = o[c];
+                if (alphaOn) outAlpha[i] = clampf(oa, 0.f, 1.f);
+            }
+        }
+        );
     }
 
     Image result(W, H, C);
