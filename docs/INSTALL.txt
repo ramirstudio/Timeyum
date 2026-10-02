@@ -1,0 +1,37 @@
+Timeyum 1.0.0 for After Effects (Windows 64 bit)
+
+Installation
+0. If Windows marked the download as blocked, right-click the zip file, choose
+   Properties, tick Unblock and press OK before you extract it.
+1. Close After Effects.
+2. Copy Timeyum.aex into
+   C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore\Timeyum\
+   (create the Timeyum folder if it does not exist; administrator permission is required).
+3. Start After Effects. The effect is under Effects > Timeyum > Timeyum, and in the
+   Effects & Presets panel.
+
+Updating
+Close After Effects, replace Timeyum.aex with the new file, start After Effects.
+
+Uninstalling
+Close After Effects and delete the Timeyum folder from MediaCore.
+
+Requirements
+After Effects 2026, Windows 10 or 11, 64 bit. No GPU is needed. The plug-in does not
+need an internet connection or a licence key, and it has no other files or libraries.
+
+If the effect does not appear
+- After Effects was open while you copied the file: close it completely and try again.
+- The file must be in a folder under MediaCore (or in MediaCore itself), not in
+  an older Plug-ins folder.
+- The plug-in is for After Effects only, not for Premiere Pro.
+- If the picture at the top of the panel is missing, the reason is written to
+  timeyum_log.txt in your temporary folder (type %TEMP% in the Explorer address bar).
+  The effect works without the picture.
+
+Files in this package
+  Timeyum.aex          the plug-in
+  USER_GUIDE.pdf       every control explained
+  INSTALL.txt          this file
+  LICENSE.txt          licence agreement
+  CHANGELOG.txt        what changed in each version
