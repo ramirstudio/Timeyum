@@ -44,6 +44,7 @@ add_test(NAME warp COMMAND timeyum_test_warp)
 # The wrapper logic (parameters, pixel conversion) runs against a mock of the AE SDK.
 add_executable(timeyum_test_ae tests/test_ae_wrapper.cpp)
 target_include_directories(timeyum_test_ae PRIVATE tests/ae_mock ae)
+target_compile_definitions(timeyum_test_ae PRIVATE TIMEYUM_BANNER)
 target_link_libraries(timeyum_test_ae PRIVATE timeyum_core)
 add_test(NAME ae_wrapper COMMAND timeyum_test_ae)
 find_package(Python3 COMPONENTS Interpreter)

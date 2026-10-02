@@ -11,7 +11,7 @@ cmake -S . -B build -DAE_SDK_DIR="C:/AfterEffectsSDK/Examples"
 cmake --build build --config Release
 ```
 
-Il risultato è `build/Release/Timeyum.aex`. Copialo in `C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore` e riavvia After Effects: l'effetto è in Effetti e predefiniti > Timeyum > Timeyum. Se PiPLtool produce una risorsa vuota, genera a mano `TimeyumPiPL.rc` e passalo con `-DTIMEYUM_PIPL_RC=percorso`. Se la compilazione si ferma su un `static_assert` dei flag, correggi i numeri in `ae/TimeyumFlags.h`.
+Il risultato è `build/Release/Timeyum.aex`. Copialo in `C:\Program Files\Adobe\Common\Plug-ins\7.0\MediaCore` e riavvia After Effects: l'effetto è in Effetti e predefiniti > Timeyum > Timeyum. Il banner in cima al pannello si disattiva con `-DTIMEYUM_BANNER=OFF`. Se PiPLtool produce una risorsa vuota, genera a mano `TimeyumPiPL.rc` e passalo con `-DTIMEYUM_PIPL_RC=percorso`. Se la compilazione si ferma su un `static_assert` dei flag, correggi i numeri in `ae/TimeyumFlags.h`.
 
 Il wrapper non è stato compilato contro l'SDK né provato in After Effects: aspettati qualche correzione ai nomi delle macro e delle funzioni, e se ci sono errori mandameli.
 

@@ -31,10 +31,16 @@ enum PF_Cmd {
 enum {
     PF_OutFlag_DEEP_COLOR_AWARE = 1 << 25,
     PF_OutFlag_SEND_UPDATE_PARAMS_UI = 1 << 26,
+    PF_OutFlag_CUSTOM_UI = 1 << 15,
     PF_OutFlag2_SUPPORTS_SMART_RENDER = 1 << 10,
     PF_OutFlag2_FLOAT_COLOR_AWARE = 1 << 12,
     PF_OutFlag2_SUPPORTS_THREADED_RENDERING = 1 << 27,
     PF_ParamFlag_SUPERVISE = 1 << 0,
+    PF_ParamFlag_CANNOT_TIME_VARY = 1 << 2,
+    PF_PUI_CONTROL = 1 << 0,
+    PF_Param_NO_DATA = 20,
+    PF_CustomEFlag_EFFECT = 1 << 0,
+    PF_UIAlignment_NONE = 0,
     PF_PUI_DISABLED = 1 << 1,
     PF_Stage_RELEASE = 3
 };
@@ -69,13 +75,26 @@ struct PF_ParamDef {
         struct { PF_Fixed x_value; PF_Fixed y_value; } td;
         U() { std::memset(this, 0, sizeof(*this)); }
     } u;
-    A_long ui_flags = 0, flags = 0;
+    A_long ui_flags = 0, flags = 0, ui_width = 0, ui_height = 0;
     char name[64] = {0};
     int param_type = 0;
     struct { A_long id = 0; } uu;
 };
 
+struct PF_CustomUIInfo {
+    A_long events = 0;
+    A_long comp_ui_width = 0, comp_ui_height = 0, comp_ui_alignment = 0;
+    A_long layer_ui_width = 0, layer_ui_height = 0, layer_ui_alignment = 0;
+    A_long preview_ui_width = 0, preview_ui_height = 0, preview_ui_alignment = 0;
+};
+#define PF_DEF_NAME name
+#define PF_STRCPY strcpy
+
 struct PF_InData {
+    struct {
+        PF_Err (*add_param)(void*, A_long, PF_ParamDef*) = nullptr;
+        PF_Err (*register_ui)(void*, PF_CustomUIInfo*) = nullptr;
+    } inter;
     A_long current_time = 0, time_step = 1001, time_scale = 24000;
     A_long width = 0, height = 0;
     PF_RationalScale downsample_x{1, 1}, downsample_y{1, 1};
@@ -119,6 +138,15 @@ struct PF_SmartRenderExtra { PF_SmartRenderCallbacks* cb; };
 struct MockParam { std::string kind, name; double dflt; int id; int flags; };
 inline std::vector<MockParam>& mockRecord() { static std::vector<MockParam> r; return r; }
 #define MOCK_ADD(kind, name, dflt, id, flags) mockRecord().push_back({kind, name, (double)(dflt), id, flags})
+inline PF_CustomUIInfo& mockUi() { static PF_CustomUIInfo u; return u; }
+inline bool& mockUiRegistered() { static bool b = false; return b; }
+inline PF_Err mockAddParam(void*, A_long index, PF_ParamDef* d) {
+    mockRecord().push_back({d->param_type == PF_Param_NO_DATA ? "banner" : "other", d->name, 0, d->uu.id, d->flags});
+    mockRecord().back().dflt = d->ui_flags;
+    (void)index;
+    return 0;
+}
+inline PF_Err mockRegisterUI(void*, PF_CustomUIInfo* ci) { mockUi() = *ci; mockUiRegistered() = true; return 0; }
 #define PF_ADD_FLOAT_SLIDERX(NAME, VMIN, VMAX, SMIN, SMAX, DFLT, PREC, DISP, FLAGS, ID) MOCK_ADD("float", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_POPUPX(NAME, N, DFLT, CHOICES, FLAGS, ID) MOCK_ADD("popup", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_POPUP(NAME, N, DFLT, CHOICES, ID) MOCK_ADD("popup", NAME, DFLT, ID, 0)

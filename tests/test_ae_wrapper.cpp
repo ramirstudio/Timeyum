@@ -1,6 +1,7 @@
 // Exercises ae/TimeyumAE.cpp against the mock SDK in tests/ae_mock.
 #include "../ae/TimeyumAE.cpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <random>
@@ -58,18 +59,38 @@ int main() {
     in.width = 96;
     in.height = 54;
     g_in_data = &in;
+    in.inter.add_param = mockAddParam;
+    in.inter.register_ui = mockRegisterUI;
 
     // Setup: flags, parameter table.
     CHECK(EffectMain(PF_Cmd_GLOBAL_SETUP, &in, &out, params, nullptr, nullptr) == 0, "global setup");
     CHECK(out.out_flags == TY_OUT_FLAGS && out.out_flags2 == TY_OUT_FLAGS2, "flags");
+#ifdef TIMEYUM_BANNER
+    CHECK((out.out_flags & PF_OutFlag_CUSTOM_UI) != 0 && TY_OUT_FLAGS == 0x06008000, "custom UI flag is missing from the global out flags");
+#endif
     CHECK(EffectMain(PF_Cmd_PARAMS_SETUP, &in, &out, params, nullptr, nullptr) == 0, "params setup");
     CHECK(out.num_params == P_COUNT, "num_params %d vs %d", out.num_params, P_COUNT);
     g_params.push_back({"input", "input", 0, 0, 0});
     for (const auto& m : mockRecord()) g_params.push_back(m);
     CHECK(static_cast<int>(g_params.size()) == P_COUNT, "registered %zu params, enum has %d", g_params.size(), P_COUNT);
     int depth = 0;
+#ifdef TIMEYUM_BANNER
+    // The banner is the first parameter after the input, a control without data, registered as custom UI.
+    CHECK(g_params.size() > 1 && g_params[P_BANNER].kind == "banner" && g_params[P_BANNER].id == ID_BANNER, "banner is not at slot %d", P_BANNER);
+    CHECK(P_BANNER == 1, "banner must sit right below the input layer");
+    CHECK((g_params[P_BANNER].flags & PF_ParamFlag_CANNOT_TIME_VARY) != 0 && (static_cast<int>(g_params[P_BANNER].dflt) & PF_PUI_CONTROL) != 0, "banner flags");
+    CHECK(mockUiRegistered() && mockUi().events == PF_CustomEFlag_EFFECT && mockUi().comp_ui_width == 0 && mockUi().layer_ui_width == 0 && mockUi().preview_ui_width == 0,
+          "custom UI must be registered for the effect panel only");
+#endif
+    {
+        // IDs on disk are unique and non-zero (they no longer equal the slot numbers: the banner id is appended last).
+        std::vector<int> ids;
+        for (size_t i = 1; i < g_params.size(); ++i) ids.push_back(g_params[i].id);
+        std::sort(ids.begin(), ids.end());
+        CHECK(ids.front() > 0 && std::adjacent_find(ids.begin(), ids.end()) == ids.end(), "parameter ids are not unique");
+        CHECK(ids.back() == ID_BANNER || ids.back() == ID_WARP_END, "the newest id is not the last in the table");
+    }
     for (size_t i = 1; i < g_params.size(); ++i) {
-        CHECK(g_params[i].id == static_cast<int>(i), "slot %zu has id %d", i, g_params[i].id);
         if (g_params[i].kind == "topic") ++depth;
         if (g_params[i].kind == "endtopic") --depth;
         CHECK(depth >= 0 && depth <= 1, "topic nesting at %zu", i);

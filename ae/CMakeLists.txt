@@ -8,6 +8,26 @@ if(NOT MSVC)
   message(FATAL_ERROR "The After Effects plug-in builds with MSVC only")
 endif()
 
+# Without the RC language CMake can silently skip the .rc files and the .aex ships with no PiPL
+# (After Effects then ignores it) and no banner.
+enable_language(RC)
+
+# Banner at the top of the Effect Controls panel (custom UI, on by default). The picture is a raw
+# BGRA file (8 byte width/height header, see tools/make_banner.py) embedded as a resource. The .rc is
+# generated so it can name the file by absolute path; the resource is not named after the
+# TIMEYUM_BANNER definition because the resource compiler would substitute it.
+option(TIMEYUM_BANNER "Banner image at the top of the Effect Controls panel" ON)
+set(BANNER_SOURCES "")
+set(BANNER_DEFINE "")
+if(TIMEYUM_BANNER)
+  set(BANNER_BIN "${CMAKE_CURRENT_LIST_DIR}/TimeyumBanner.bin")
+  set(BANNER_RC "${CMAKE_CURRENT_BINARY_DIR}/TimeyumBanner.rc")
+  file(WRITE "${BANNER_RC}" "TY_BANNER_IMAGE RCDATA \"${BANNER_BIN}\"\n")
+  set_source_files_properties("${BANNER_RC}" PROPERTIES OBJECT_DEPENDS "${BANNER_BIN}")
+  set(BANNER_SOURCES "${BANNER_RC}")
+  set(BANNER_DEFINE /D TIMEYUM_BANNER)
+endif()
+
 set(AE_INCLUDES
   ${AE_SDK_DIR}/Headers
   ${AE_SDK_DIR}/Headers/SP
@@ -26,7 +46,7 @@ else()
   set(PIPL_INC /I "${AE_SDK_DIR}/Headers" /I "${CMAKE_CURRENT_LIST_DIR}" /I "${AE_SDK_DIR}/Resources")
   add_custom_command(
     OUTPUT ${PIPL_RC}
-    COMMAND ${CMAKE_CXX_COMPILER} /nologo ${PIPL_INC} /EP ${PIPL_SRC} > ${PIPL_RR}
+    COMMAND ${CMAKE_CXX_COMPILER} /nologo ${BANNER_DEFINE} ${PIPL_INC} /EP ${PIPL_SRC} > ${PIPL_RR}
     COMMAND "${AE_SDK_DIR}/Resources/PiPLtool.exe" ${PIPL_RR} ${PIPL_RRC}
     COMMAND ${CMAKE_CXX_COMPILER} /nologo /D MSWindows /EP ${PIPL_RRC} > ${PIPL_RC}
     DEPENDS ${PIPL_SRC} ${CMAKE_CURRENT_LIST_DIR}/TimeyumFlags.h
@@ -37,8 +57,12 @@ add_library(timeyum_ae MODULE
   ${CMAKE_CURRENT_LIST_DIR}/TimeyumAE.cpp
   ${AE_SDK_DIR}/Util/AEGP_SuiteHandler.cpp
   ${AE_SDK_DIR}/Util/MissingSuiteError.cpp
-  ${PIPL_RC})
+  ${PIPL_RC}
+  ${BANNER_SOURCES})
 target_include_directories(timeyum_ae PRIVATE ${AE_INCLUDES} ${CMAKE_CURRENT_LIST_DIR})
 target_compile_definitions(timeyum_ae PRIVATE MSWindows WIN32 _WINDOWS NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
+if(TIMEYUM_BANNER)
+  target_compile_definitions(timeyum_ae PRIVATE TIMEYUM_BANNER)
+endif()
 target_link_libraries(timeyum_ae PRIVATE timeyum_core)
 set_target_properties(timeyum_ae PROPERTIES PREFIX "" OUTPUT_NAME "Timeyum" SUFFIX ".aex")

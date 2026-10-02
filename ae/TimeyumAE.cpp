@@ -5,9 +5,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <new>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -22,13 +25,26 @@
 #include "Smart_Utils.h"
 #include "AEFX_SuiteHelper.h"
 #include "AEGP_SuiteHandler.h"
+#ifndef TIMEYUM_MOCK_SDK
+#include "AE_EffectUI.h"
+#include "adobesdk/DrawbotSuite.h"
+#include "SPBasic.h"
+#ifdef AE_OS_WIN
+#include <windows.h>
+#endif
+#endif
 
 #include "Timeyum.h"
 #include "TimeyumFlags.h"
 #include "TimeyumParams.h"
 
+#ifdef TIMEYUM_BANNER
+static_assert(TY_OUT_FLAGS == (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI | PF_OutFlag_CUSTOM_UI),
+              "TY_OUT_FLAGS does not match the SDK flags, fix TimeyumFlags.h");
+#else
 static_assert(TY_OUT_FLAGS == (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI),
               "TY_OUT_FLAGS does not match the SDK flags, fix TimeyumFlags.h");
+#endif
 static_assert(TY_OUT_FLAGS2 == (PF_OutFlag2_SUPPORTS_SMART_RENDER | PF_OutFlag2_FLOAT_COLOR_AWARE | PF_OutFlag2_SUPPORTS_THREADED_RENDERING),
               "TY_OUT_FLAGS2 does not match the SDK flags, fix TimeyumFlags.h");
 static_assert(TY_VERSION_VALUE == PF_VERSION(TY_VERSION_MAJOR, TY_VERSION_MINOR, TY_VERSION_BUG, PF_Stage_RELEASE, 0),
@@ -45,9 +61,41 @@ using timeyum::Params;
 
 constexpr float kMax16 = 32768.0f;  // PF_MAX_CHAN16
 
+#ifdef TIMEYUM_BANNER
+constexpr int kBannerUiWidth = 200;  // hint only: the banner is drawn across the whole row
+constexpr int kBannerUiHeight = 160;
+#endif
+
 PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     PF_Err err = PF_Err_NONE;
     PF_ParamDef def;
+
+#ifdef TIMEYUM_BANNER
+    // Banner: a parameter without data whose only job is to be drawn (see drawBanner).
+    AEFX_CLR_STRUCT(def);
+    def.param_type = PF_Param_NO_DATA;
+    def.flags = PF_ParamFlag_CANNOT_TIME_VARY;
+    def.ui_flags = PF_PUI_CONTROL;
+    def.ui_width = kBannerUiWidth;
+    def.ui_height = kBannerUiHeight;
+    PF_STRCPY(def.PF_DEF_NAME, " ");
+    def.uu.id = ID_BANNER;
+    if (const PF_Err e = (*in_data->inter.add_param)(in_data->effect_ref, -1, &def)) return e;
+    // A custom UI must be registered (as in the SDK's Custom_ECW_UI sample); without this After
+    // Effects crashes when it builds the panel. Only the Effect Controls panel is used.
+    {
+        PF_CustomUIInfo ci;
+        AEFX_CLR_STRUCT(ci);
+        ci.events = PF_CustomEFlag_EFFECT;
+        ci.comp_ui_width = ci.comp_ui_height = 0;
+        ci.comp_ui_alignment = PF_UIAlignment_NONE;
+        ci.layer_ui_width = ci.layer_ui_height = 0;
+        ci.layer_ui_alignment = PF_UIAlignment_NONE;
+        ci.preview_ui_width = ci.preview_ui_height = 0;
+        ci.preview_ui_alignment = PF_UIAlignment_NONE;
+        if (const PF_Err e = (*in_data->inter.register_ui)(in_data->effect_ref, &ci)) return e;
+    }
+#endif
 
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Opacity", 0, 100, 0, 100, 100, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_OPACITY);
@@ -574,6 +622,9 @@ PF_Err preRender(PF_InData* in_data, PF_OutData* out_data, PF_PreRenderExtra* ex
         extra->output->pre_render_data = nullptr;
         // Register the parameter dependencies so cached frames invalidate correctly.
         for (int i = 1; i < P_COUNT && !err; ++i) {
+#ifdef TIMEYUM_BANNER
+            if (i == P_BANNER) continue;
+#endif
             PF_ParamDef d;
             AEFX_CLR_STRUCT(d);
             ERR(PF_CHECKOUT_PARAM(in_data, i, in_data->current_time, in_data->time_step, in_data->time_scale, &d));
@@ -654,6 +705,185 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
     return err;
 }
 
+#if defined(TIMEYUM_BANNER) && !defined(TIMEYUM_MOCK_SDK)
+// ---------------------------------------------------------------------------------------------
+// Banner at the top of the Effect Controls panel
+// ---------------------------------------------------------------------------------------------
+
+// Problems this code already works around (they were solved first in the Lensyum plug-in):
+//  - the custom UI must be registered and PF_OutFlag_CUSTOM_UI set both in GlobalSetup and in the PiPL;
+//  - the parameter row is drawn in two events (title area and control area), so the picture is spread
+//    over the union of both and each event paints its own share;
+//  - pixels go to Drawbot as straight BGRA, the resource name must not equal a compile definition
+//    (the resource compiler would substitute it), and the .rc must be compiled (enable_language(RC)).
+
+void logLine(const std::string& text) {
+#ifdef AE_OS_WIN
+    char path[MAX_PATH];
+    const DWORD n = GetTempPathA(MAX_PATH, path);
+    if (n == 0 || n > MAX_PATH - 20) return;
+    std::strcat(path, "timeyum_log.txt");
+    if (FILE* f = std::fopen(path, "a")) {
+        std::fprintf(f, "%s\n", text.c_str());
+        std::fclose(f);
+    }
+#else
+    (void)text;
+#endif
+}
+
+void moduleAnchor() {}
+
+// Raw BGRA picture embedded as the TY_BANNER_IMAGE resource: width and height (uint32 LE), pixels.
+struct BannerImage {
+    int w = 0, h = 0;
+    const unsigned char* bgra = nullptr;
+};
+
+const BannerImage& bannerImage() {
+    static const BannerImage img = [] {
+        BannerImage r;
+#ifdef AE_OS_WIN
+        HMODULE self = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&moduleAnchor), &self)) {
+            if (HRSRC res = FindResourceW(self, L"TY_BANNER_IMAGE", MAKEINTRESOURCEW(10)) /* RT_RCDATA */) {
+                const DWORD n = SizeofResource(self, res);
+                HGLOBAL mem = LoadResource(self, res);
+                const unsigned char* p = mem ? static_cast<const unsigned char*>(LockResource(mem)) : nullptr;
+                if (p && n > 8) {
+                    unsigned w = 0, h = 0;
+                    std::memcpy(&w, p, 4);
+                    std::memcpy(&h, p + 4, 4);
+                    if (w > 0 && h > 0 && w < 16384 && h < 16384 && static_cast<size_t>(w) * h * 4 + 8 <= n) {
+                        r.w = static_cast<int>(w);
+                        r.h = static_cast<int>(h);
+                        r.bgra = p + 8;
+                    }
+                }
+            }
+        }
+#endif
+        return r;
+    }();
+    return img;
+}
+
+struct BannerSpan {
+    int l = 0, t = 0, r = 0, b = 0;
+    bool known = false;
+};
+BannerSpan g_bannerTitle, g_bannerControl;
+
+// The banner is one picture spread over the parameter's title area and its control area: each
+// draw event paints its own share, sized to the whole row (cover fit, centred).
+PF_Err drawBanner(PF_InData* in_data, PF_EventExtra* ev) {
+    const BannerImage& bm = bannerImage();
+    if (!bm.bgra) {
+        static bool logged = false;
+        if (!logged) { logged = true; logLine("banner: resource TY_BANNER_IMAGE not found"); }
+        return PF_Err_NONE;
+    }
+    BannerSpan cur;
+    cur.l = ev->effect_win.current_frame.left;
+    cur.t = ev->effect_win.current_frame.top;
+    cur.r = ev->effect_win.current_frame.right;
+    cur.b = ev->effect_win.current_frame.bottom;
+    cur.known = true;
+    if (ev->effect_win.area == PF_EA_PARAM_TITLE) g_bannerTitle = cur;
+    else if (ev->effect_win.area == PF_EA_CONTROL) g_bannerControl = cur;
+    else return PF_Err_NONE;
+    const int fw = cur.r - cur.l, fh = cur.b - cur.t;
+    if (fw <= 0 || fh <= 0 || fw > 4096 || fh > 4096) return PF_Err_NONE;
+
+    BannerSpan row = cur;
+    if (g_bannerTitle.known && g_bannerControl.known && std::abs(g_bannerTitle.t - g_bannerControl.t) <= 2) {
+        row.l = std::min(g_bannerTitle.l, g_bannerControl.l);
+        row.r = std::max(g_bannerTitle.r, g_bannerControl.r);
+        row.t = std::min(g_bannerTitle.t, g_bannerControl.t);
+        row.b = std::max(g_bannerTitle.b, g_bannerControl.b);
+    }
+    const double rw = row.r - row.l, rh = row.b - row.t;
+    const double sc = std::max(rw / bm.w, rh / bm.h);
+
+    std::vector<unsigned char> buf(static_cast<size_t>(fw) * fh * 4);
+    auto fetch = [&](double sx, double sy, float* c) {
+        sx = std::min(std::max(sx - 0.5, 0.0), bm.w - 1.001);
+        sy = std::min(std::max(sy - 0.5, 0.0), bm.h - 1.001);
+        const int x0 = static_cast<int>(sx), y0 = static_cast<int>(sy);
+        const float fx = static_cast<float>(sx - x0), fy = static_cast<float>(sy - y0);
+        const unsigned char* p00 = bm.bgra + (static_cast<size_t>(y0) * bm.w + x0) * 4;
+        const unsigned char* p10 = p00 + 4;
+        const unsigned char* p01 = p00 + static_cast<size_t>(bm.w) * 4;
+        const unsigned char* p11 = p01 + 4;
+        for (int k = 0; k < 3; ++k) {
+            const float a = p00[k] + (p10[k] - p00[k]) * fx;
+            const float b = p01[k] + (p11[k] - p01[k]) * fx;
+            c[k] += a + (b - a) * fy;
+        }
+    };
+    for (int y = 0; y < fh; ++y)
+        for (int x = 0; x < fw; ++x) {
+            float c[3] = {0, 0, 0};
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i < 2; ++i) {
+                    const double X = cur.l - row.l + x + 0.25 + 0.5 * i, Y = cur.t - row.t + y + 0.25 + 0.5 * j;
+                    fetch((X - rw * 0.5) / sc + bm.w * 0.5, (Y - rh * 0.5) / sc + bm.h * 0.5, c);
+                }
+            unsigned char* q = &buf[(static_cast<size_t>(y) * fw + x) * 4];
+            for (int k = 0; k < 3; ++k) q[k] = static_cast<unsigned char>(std::lround(std::min(c[k] * 0.25f, 255.0f)));
+            q[3] = 255;
+        }
+
+    SPBasicSuite* sp = in_data->pica_basicP;
+    const PF_EffectCustomUISuite1* uiS = nullptr;
+    const DRAWBOT_DrawbotSuite1* drawS = nullptr;
+    const DRAWBOT_SupplierSuite1* supS = nullptr;
+    const DRAWBOT_SurfaceSuite1* surfS = nullptr;
+    const bool haveSuites =
+        sp && sp->AcquireSuite(kPFEffectCustomUISuite, kPFEffectCustomUISuiteVersion1, reinterpret_cast<const void**>(&uiS)) == kSPNoError && uiS &&
+        sp->AcquireSuite(kDRAWBOT_DrawSuite, kDRAWBOT_DrawSuite_VersionCurrent, reinterpret_cast<const void**>(&drawS)) == kSPNoError && drawS &&
+        sp->AcquireSuite(kDRAWBOT_SupplierSuite, kDRAWBOT_SupplierSuite_VersionCurrent, reinterpret_cast<const void**>(&supS)) == kSPNoError && supS &&
+        sp->AcquireSuite(kDRAWBOT_SurfaceSuite, kDRAWBOT_SurfaceSuite_VersionCurrent, reinterpret_cast<const void**>(&surfS)) == kSPNoError && surfS;
+    PF_Err err = PF_Err_NONE;
+    if (haveSuites) {
+        DRAWBOT_DrawRef drawRef = nullptr;
+        DRAWBOT_SupplierRef supplierRef = nullptr;
+        DRAWBOT_SurfaceRef surfaceRef = nullptr;
+        DRAWBOT_ImageRef imageRef = nullptr;
+        err = uiS->PF_GetDrawingReference(ev->contextH, &drawRef);
+        if (!err) err = drawS->GetSupplier(drawRef, &supplierRef);
+        if (!err) err = drawS->GetSurface(drawRef, &surfaceRef);
+        if (!err) err = supS->NewImageFromBuffer(supplierRef, fw, fh, fw * 4, kDRAWBOT_PixelLayout_32BGRA_Straight, buf.data(), &imageRef);
+        if (!err) {
+            DRAWBOT_PointF32 origin;
+            origin.x = static_cast<float>(cur.l);
+            origin.y = static_cast<float>(cur.t);
+            err = surfS->DrawImage(surfaceRef, imageRef, &origin, 1.0f);
+        }
+        if (imageRef) supS->ReleaseObject((DRAWBOT_ObjectRef)imageRef);
+        if (err) logLine("banner: drawing failed, error " + std::to_string(static_cast<int>(err)));
+        ev->evt_out_flags |= PF_EO_HANDLED_EVENT;
+    } else {
+        static bool logged = false;
+        if (!logged) { logged = true; logLine("banner: drawing suites not available"); }
+    }
+    if (sp) {
+        if (surfS) sp->ReleaseSuite(kDRAWBOT_SurfaceSuite, kDRAWBOT_SurfaceSuite_VersionCurrent);
+        if (supS) sp->ReleaseSuite(kDRAWBOT_SupplierSuite, kDRAWBOT_SupplierSuite_VersionCurrent);
+        if (drawS) sp->ReleaseSuite(kDRAWBOT_DrawSuite, kDRAWBOT_DrawSuite_VersionCurrent);
+        if (uiS) sp->ReleaseSuite(kPFEffectCustomUISuite, kPFEffectCustomUISuiteVersion1);
+    }
+    return PF_Err_NONE;
+}
+
+PF_Err handleEvent(PF_InData* in_data, PF_EventExtra* ev) {
+    if (!ev || !ev->contextH || (*ev->contextH)->w_type != PF_Window_EFFECT) return PF_Err_NONE;
+    if (ev->e_type != PF_Event_DRAW || ev->effect_win.index != P_BANNER) return PF_Err_NONE;
+    return drawBanner(in_data, ev);
+}
+#endif
+
 }  // namespace
 
 extern "C" {
@@ -670,6 +900,9 @@ DllExport PF_Err EffectMain(PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data
             case PF_Cmd_UPDATE_PARAMS_UI: err = updateParamsUI(in_data, params); break;
             case PF_Cmd_SMART_PRE_RENDER: err = preRender(in_data, out_data, reinterpret_cast<PF_PreRenderExtra*>(extra)); break;
             case PF_Cmd_SMART_RENDER: err = smartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra)); break;
+#if defined(TIMEYUM_BANNER) && !defined(TIMEYUM_MOCK_SDK)
+            case PF_Cmd_EVENT: err = handleEvent(in_data, reinterpret_cast<PF_EventExtra*>(extra)); break;
+#endif
             default: break;
         }
     } catch (PF_Err& thrown) {
