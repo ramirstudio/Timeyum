@@ -156,6 +156,8 @@ inline PF_Err mockRegisterUI(void*, PF_CustomUIInfo* ci) { mockUi() = *ci; mockU
 #define PF_ADD_CHECKBOX(NAME, CBNAME, DFLT, FLAGS, ID) MOCK_ADD("check", NAME, DFLT, ID, FLAGS)
 #define PF_ADD_ANGLE(NAME, DFLT, ID) MOCK_ADD("angle", NAME, DFLT, ID, 0)
 #define PF_ADD_POINT(NAME, X, Y, RESTRICT, ID) MOCK_ADD("point", NAME, (X) * 1000 + (Y), ID, 0)
+#define PF_LayerDefault_NONE (-1)
+#define PF_ADD_LAYER(NAME, DFLT, ID) MOCK_ADD("layer", NAME, DFLT, ID, 0)
 #define PF_ADD_COLOR(NAME, R, G, B, ID) MOCK_ADD("color", NAME, (R) * 65536 + (G) * 256 + (B), ID, 0)
 #define PF_ADD_SLIDER(NAME, VMIN, VMAX, SMIN, SMAX, DFLT, ID) MOCK_ADD("int", NAME, DFLT, ID, 0)
 #define PF_ADD_TOPIC(NAME, ID) MOCK_ADD("topic", NAME, 0, ID, 0)

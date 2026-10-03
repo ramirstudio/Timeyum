@@ -33,6 +33,7 @@ Timeyum is a native After Effects plug-in, not a preset built from copies and bl
 - Direction and shape: any angle, symmetric streaks, a back streak, a start offset, a highlight threshold with a soft knee.
 - Ghost echoes, vertical frame roll with a visible frame line, smear tint and saturation, chromatic spread between red and blue, breakup between streaks.
 - Shake: a repeatable jitter on length, angle, timing, ghosts and roll, plus gate weave. The same frame always renders the same, in any order.
+- A control input: a matte, mask, alpha channel, grayscale depth map or 32 bit Z-depth pass, from another layer (with its masks and effects) or from the layer itself. It decides where the effect shows, where the streaks come from, how long they are, and what drives Warp, with levels, inversion and softness.
 - Input spaces for linear, sRGB, gamma 2.4, ARRI LogC3 and Sony S-Log3 footage.
 - 8, 16 and 32 bits per channel, alpha support, multi-frame rendering, CPU only.
 

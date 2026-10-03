@@ -10,5 +10,7 @@ First release.
 - Ghost echoes, frame roll with a frame line, smear tint, saturation, chromatic spread and breakup.
 - Deterministic shake with jitter on length, angle, smear, timing, ghosts and roll, plus gate weave.
 - Warp: flow field, reaction to brightness and motion with memory, interactive pull point, automatic bright-area target, control views.
+- Control input: a matte, mask, alpha channel, depth map or Z-depth pass, from another layer or from this layer, decides where the effect shows, where the streaks come from, how long they are and what drives the Warp. Levels, inversion, softness and a view of the control.
+- A static panel: no control is rewritten or greyed out when another one changes.
 - 8, 16 and 32 bits per channel, multi-frame rendering, CPU only.
 - Command line tool for image sequences.

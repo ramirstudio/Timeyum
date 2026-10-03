@@ -299,6 +299,7 @@ Params resolveParams(const Params& in, double frame, double fps) {
         p.breakup_seed = seed + static_cast<int>(std::floor(t)) * 7919;
     }
     p.cleanup *= p.pixel_scale;
+    p.control_softness *= p.pixel_scale;
     p.breakup_scale *= p.pixel_scale;
     p.weave_x *= p.pixel_scale;
     p.weave_y *= p.pixel_scale;
@@ -343,7 +344,7 @@ Image warpView(const Params& p, const Image& src, const WarpField& f, int W, int
 }  // namespace
 
 void process(const Params& params, const Image& srcIn, Image& dst, double frame, double fps,
-             const std::vector<LumaGrid>* history) {
+             const std::vector<LumaGrid>* history, const Image* control) {
     const Params p = resolveParams(params, frame, fps);
     const int W = srcIn.width, H = srcIn.height, C = srcIn.channels;
     if (W <= 0 || H <= 0 || C < 3) {
@@ -401,6 +402,41 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
         }
     });
 
+    // Control input: a 0..1 value per pixel from a matte, an alpha channel, a depth map...
+    std::vector<float> ctl;
+    if (control) ctl = makeControlPlane(p, *control, W, H);
+    const bool haveCtl = !ctl.empty();
+    auto amount01 = [](double v) { return static_cast<float>(std::min(std::max(v, 0.0), 1.0)); };
+    const float ctlMatte = haveCtl ? amount01(p.control_matte) : 0.f;
+    const float ctlEmit = haveCtl ? amount01(p.control_emit) : 0.f;
+    const float ctlLength = haveCtl ? amount01(p.control_length) : 0.f;
+    const float ctlWarp = haveCtl ? amount01(p.control_warp) : 0.f;
+    if (haveCtl && p.control_view) {
+        Image view(W, H, C);
+        parallelFor(H, [&](int y) {
+            const float* s = src.row(y);
+            float* o = view.row(y);
+            for (int x = 0; x < W; ++x) {
+                float* px = o + static_cast<size_t>(x) * C;
+                px[0] = px[1] = px[2] = ctl[static_cast<size_t>(y) * W + x];
+                if (C >= 4) px[3] = 1.f;
+                for (int c = 4; c < C; ++c) px[c] = s[static_cast<size_t>(x) * C + c];
+            }
+        });
+        dst = std::move(view);
+        return;
+    }
+    // Streaks come only from where the control is white (as much as control_emit says).
+    if (ctlEmit > 0.f) {
+        parallelFor(H, [&](int y) {
+            for (int x = 0; x < W; ++x) {
+                const size_t i = static_cast<size_t>(y) * W + x;
+                const float e = 1.f - ctlEmit + ctlEmit * ctl[i];
+                for (int c = 0; c < 3; ++c) moving[c][i] *= e;
+            }
+        });
+    }
+
     // Warp field: how the streak length and the displacement vary across the frame.
     const bool warpOn = p.warp && p.warp_amount > 0.0;
     WarpField field;
@@ -411,13 +447,22 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
             gb.addRowPlanar(y, rgb[0].data() + o, rgb[1].data() + o, rgb[2].data() + o);
         }
         static const std::vector<LumaGrid> kNoHistory;
-        field = buildWarpField(p, W, H, gb.finish(), history ? *history : kNoHistory, frame / std::max(fps, 1e-6));
+        std::vector<float> ctlGrid;
+        if (ctlWarp > 0.f) ctlGrid = makeControlGrid(ctl.data(), W, H);
+        Params pw = p;
+        pw.control_warp = ctlWarp;
+        field = buildWarpField(pw, W, H, gb.finish(), history ? *history : kNoHistory, frame / std::max(fps, 1e-6),
+                               ctlGrid.empty() ? nullptr : &ctlGrid);
         if (p.warp_view != kViewResult) {
             dst = warpView(p, src, field, W, H);
             return;
         }
     }
-    const bool modulate = warpOn && field.modulates;
+    // The streak length varies per pixel from the warp and from the control; both multiply.
+    const bool warpMod = warpOn && field.modulates;
+    const bool modulate = warpMod || ctlLength > 0.f;
+    const double mMinTotal = (warpMod ? field.mMin : 1.0) * (1.0 - ctlLength);
+    const double mMaxTotal = warpMod ? field.mMax : 1.0;
 
     const double rad = p.angle * kPi / 180.0;
     const double dir[2] = {std::cos(rad), -std::sin(rad)};
@@ -437,8 +482,29 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
     }
     const int midIdx = scaleIdx[1];
 
+    // Per pixel length multiplier.
+    Plane mPix;
+    double actualMin = 1.0, actualMax = 1.0;
+    if (modulate) {
+        mPix.resize(N);
+        parallelFor(H, [&](int y) {
+            const double v = (y + 0.5) / field.cell;
+            for (int x = 0; x < W; ++x) {
+                const size_t i = static_cast<size_t>(y) * W + x;
+                float m = warpMod ? gridSample(field.length, field.gw, field.gh, (x + 0.5) / field.cell, v) : 1.f;
+                if (ctlLength > 0.f) m *= 1.f - ctlLength + ctlLength * ctl[i];
+                mPix[i] = m;
+            }
+        });
+        actualMin = actualMax = mPix[0];
+        for (size_t i = 0; i < N; ++i) {
+            actualMin = std::min<double>(actualMin, mPix[i]);
+            actualMax = std::max<double>(actualMax, mPix[i]);
+        }
+    }
+
     // Streak length levels. Without modulation there is one level: the plain effect.
-    const std::vector<double> lvM = modulate ? buildLevels(field.mMin, field.mMax, p.warp_levels) : std::vector<double>{1.0};
+    const std::vector<double> lvM = modulate ? buildLevels(mMinTotal, mMaxTotal, p.warp_levels) : std::vector<double>{1.0};
     struct Level {
         std::vector<StreakKernel> kernels;
         double share = 0.0;
@@ -450,7 +516,7 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
     for (size_t li = 0; li < lvM.size(); ++li) {
         Level& lv = levels[li];
         if (lvM[li] <= 1e-4) continue;
-        if (modulate && !levelSupported(lvM, li, field.actualMin, field.actualMax)) continue;
+        if (modulate && !levelSupported(lvM, li, actualMin, actualMax)) continue;
         Params pl = p;
         pl.length = p.length * lvM[li];
         for (double s : distinct) lv.kernels.push_back(streakKernel(pl, H, std::max(s, 0.0)));
@@ -462,15 +528,8 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
             for (const auto& t : k.taps) maxOff = std::max(maxOff, std::fabs(t.offset));
     }
 
-    // Per pixel length multiplier and displacement from the grid.
-    Plane mPix, dxPix, dyPix;
-    if (modulate) {
-        mPix.resize(N);
-        parallelFor(H, [&](int y) {
-            const double v = (y + 0.5) / field.cell;
-            for (int x = 0; x < W; ++x) mPix[static_cast<size_t>(y) * W + x] = gridSample(field.length, field.gw, field.gh, (x + 0.5) / field.cell, v);
-        });
-    }
+    // Per pixel displacement from the grid.
+    Plane dxPix, dyPix;
     const bool displace = warpOn && field.displaces && (anyActive || p.base_follow > 0.0);
     if (displace) {
         dxPix.resize(N);
@@ -496,7 +555,10 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
 
         if (alphaOn) {
             alphaMoving.resize(N);
-            for (size_t i = 0; i < N; ++i) alphaMoving[i] = useThreshold ? alpha[i] * ratio[i] : alpha[i];
+            for (size_t i = 0; i < N; ++i) {
+                const float e = ctlEmit > 0.f ? 1.f - ctlEmit + ctlEmit * ctl[i] : 1.f;
+                alphaMoving[i] = (useThreshold ? alpha[i] * ratio[i] : alpha[i]) * e;
+            }
         }
         // Planes sharing a kernel go through the FFT in pairs.
         struct Job { const Plane* a; const Plane* b; Plane* outA; Plane* outB; int cls; };
@@ -710,12 +772,18 @@ void process(const Params& params, const Image& srcIn, Image& dst, double frame,
     if (std::fabs(rollPx) > 1e-3 || barPx >= 0.5) result = rollFrame(result, rollPx, barPx, p.roll_bar_soft, hasAlpha);
     if (std::fabs(p.weave_x) > 1e-4 || std::fabs(p.weave_y) > 1e-4) result = shiftLinear(result, p.weave_y, p.weave_x);
 
+    // Opacity and the control matte: where the effect shows, per pixel.
     const float opacity = static_cast<float>(std::min(std::max(p.opacity, 0.0), 1.0));
-    if (opacity < 1.f) {
+    if (opacity < 1.f || ctlMatte > 0.f) {
         parallelFor(H, [&](int y) {
             const float* s = src.row(y);
             float* o = result.row(y);
-            for (size_t k = 0; k < static_cast<size_t>(W) * C; ++k) o[k] = s[k] + (o[k] - s[k]) * opacity;
+            for (int x = 0; x < W; ++x) {
+                const float f = opacity * (ctlMatte > 0.f ? 1.f - ctlMatte + ctlMatte * ctl[static_cast<size_t>(y) * W + x] : 1.f);
+                float* px = o + static_cast<size_t>(x) * C;
+                const float* sp = s + static_cast<size_t>(x) * C;
+                for (int c = 0; c < C; ++c) px[c] = sp[c] + (px[c] - sp[c]) * f;
+            }
         });
     }
     dst = std::move(result);

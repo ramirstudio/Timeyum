@@ -34,9 +34,10 @@ PF_Err mockCheckout(PF_InData*, int index, PF_ParamDef* d) {
 }
 
 static PF_EffectWorld *g_in, *g_out;
-static PF_EffectWorld* g_past[9];  // checkout id -> world of a past frame (id 0 is the input)
+static PF_EffectWorld* g_past[32];  // checkout id -> world of a past frame (id 0 is the input)
 static std::vector<std::pair<A_long, A_long>> g_pastCheckouts;  // (checkout id, time) requested in pre-render
 static int g_checkins = 0, g_checkouts = 0;
+static int g_controlRequests = 0;  // pre-render checkouts of the control layer
 static PF_Err coLayerPixels(void*, A_long id, PF_EffectWorld** w) {
     ++g_checkouts;
     *w = id == 0 ? g_in : g_past[id];
@@ -53,9 +54,14 @@ static PF_LRect clip(const PF_LRect& a, const PF_LRect& b) {
     if (r.bottom < r.top) r.bottom = r.top;
     return r;
 }
-static PF_Err coLayer(void*, A_long, A_long id, const PF_RenderRequest* r, A_long time, A_long, A_long, PF_CheckoutResult* out) {
-    if (id > 0) g_pastCheckouts.push_back({id, time});
-    else g_inputRequest = r->rect;
+static PF_Err coLayer(void*, A_long index, A_long id, const PF_RenderRequest* r, A_long time, A_long, A_long, PF_CheckoutResult* out) {
+    if (id == CHECKOUT_CONTROL) {
+        if (index == P_CONTROL_LAYER) ++g_controlRequests;
+    } else if (id > 0) {
+        g_pastCheckouts.push_back({id, time});
+    } else {
+        g_inputRequest = r->rect;
+    }
     out->result_rect = clip(r->rect, g_layerRect);  // After Effects clips the request to what the layer has
     out->max_result_rect = g_layerRect;
     out->ref_width = g_refW;
@@ -78,8 +84,9 @@ int main() {
     // Setup: flags, parameter table.
     CHECK(EffectMain(PF_Cmd_GLOBAL_SETUP, &in, &out, params, nullptr, nullptr) == 0, "global setup");
     CHECK(out.out_flags == TY_OUT_FLAGS && out.out_flags2 == TY_OUT_FLAGS2, "flags");
+    CHECK((out.out_flags & PF_OutFlag_SEND_UPDATE_PARAMS_UI) == 0, "the panel must not ask for UPDATE_PARAMS_UI");
 #ifdef TIMEYUM_BANNER
-    CHECK((out.out_flags & PF_OutFlag_CUSTOM_UI) != 0 && TY_OUT_FLAGS == 0x06008000, "custom UI flag is missing from the global out flags");
+    CHECK((out.out_flags & PF_OutFlag_CUSTOM_UI) != 0 && TY_OUT_FLAGS == 0x02008000, "custom UI flag is missing from the global out flags");
 #endif
     CHECK(EffectMain(PF_Cmd_PARAMS_SETUP, &in, &out, params, nullptr, nullptr) == 0, "params setup");
     CHECK(out.num_params == P_COUNT, "num_params %d vs %d", out.num_params, P_COUNT);
@@ -101,7 +108,7 @@ int main() {
         for (size_t i = 1; i < g_params.size(); ++i) ids.push_back(g_params[i].id);
         std::sort(ids.begin(), ids.end());
         CHECK(ids.front() > 0 && std::adjacent_find(ids.begin(), ids.end()) == ids.end(), "parameter ids are not unique");
-        CHECK(ids.back() == ID_BANNER || ids.back() == ID_WARP_END, "the newest id is not the last in the table");
+        CHECK(ids.back() == ID_CONTROL_END, "the newest id is not the last in the table");
     }
     for (size_t i = 1; i < g_params.size(); ++i) {
         if (g_params[i].kind == "topic") ++depth;
@@ -116,6 +123,8 @@ int main() {
     kindAt(P_WARP_TOPIC, "topic"); kindAt(P_WARP, "check"); kindAt(P_WARP_VIEW, "popup"); kindAt(P_FLOW_DETAIL, "int");
     kindAt(P_DRIFT_ANGLE, "angle"); kindAt(P_PULL_POINT, "point"); kindAt(P_PULL_STRENGTH, "float"); kindAt(P_HISTORY, "int");
     kindAt(P_WARP_LEVELS, "int"); kindAt(P_WARP_END, "endtopic");
+    kindAt(P_CONTROL_TOPIC, "topic"); kindAt(P_CONTROL_INPUT, "popup"); kindAt(P_CONTROL_LAYER, "layer"); kindAt(P_CONTROL_INVERT, "check");
+    kindAt(P_CONTROL_BLACK, "float"); kindAt(P_CONTROL_MATTE, "float"); kindAt(P_CONTROL_VIEW, "check"); kindAt(P_CONTROL_END, "endtopic");
     kindAt(P_SHAKE_SEED, "int"); kindAt(P_COLORSPACE, "popup"); kindAt(P_AFFECT_ALPHA, "check"); kindAt(P_OUTPUT_END, "endtopic");
 
     // Defaults of the panel must equal the core defaults.
@@ -138,6 +147,10 @@ int main() {
           same(p.shake_timing, d.shake_timing) && same(p.shake_ghost, d.shake_ghost) && same(p.shake_roll, d.shake_roll) &&
           same(p.shake_weave_x, d.shake_weave_x) && same(p.shake_weave_y, d.shake_weave_y), "shake defaults");
     CHECK(p.affect_alpha == d.affect_alpha, "alpha default");
+    CHECK(p.control == d.control && p.control == timeyum::kCtlOff && p.control_invert == d.control_invert && same(p.control_black, d.control_black) &&
+          same(p.control_white, d.control_white) && same(p.control_near, d.control_near) && same(p.control_far, d.control_far) &&
+          same(p.control_softness, d.control_softness) && same(p.control_matte, d.control_matte) && same(p.control_emit, d.control_emit) &&
+          same(p.control_length, d.control_length) && same(p.control_warp, d.control_warp) && p.control_view == d.control_view, "control defaults");
     CHECK(p.warp == d.warp && p.warp_view == d.warp_view && same(p.warp_amount, d.warp_amount), "warp defaults");
     CHECK(same(p.flow_length, d.flow_length) && same(p.flow_wave, d.flow_wave) && same(p.flow_scale, d.flow_scale) && same(p.flow_speed, d.flow_speed) &&
           p.flow_detail == d.flow_detail && p.flow_seed == d.flow_seed && same(p.drift_angle, d.drift_angle) && same(p.drift_speed, d.drift_speed), "flow defaults");
@@ -147,32 +160,6 @@ int main() {
     CHECK(same(p.pull_x, d.pull_x) && same(p.pull_y, d.pull_y) && same(p.pull_strength, d.pull_strength) && same(p.pull_radius, d.pull_radius) &&
           same(p.pull_length, d.pull_length) && same(p.auto_strength, d.auto_strength) && same(p.base_follow, d.base_follow) && p.warp_levels == d.warp_levels,
           "pull defaults: point (%g, %g)", p.pull_x, p.pull_y);
-
-    // Enabling logic.
-    std::vector<PF_ParamDef> defs(P_COUNT);
-    std::vector<PF_ParamDef*> ptrs(P_COUNT);
-    for (int i = 0; i < P_COUNT; ++i) { mockCheckout(&in, i, &defs[i]); ptrs[i] = &defs[i]; }
-    defs[P_PROFILE].u.pd.value = 3;  // camera
-    EffectMain(PF_Cmd_UPDATE_PARAMS_UI, &in, &out, ptrs.data(), nullptr, nullptr);
-    CHECK(mockDisabled()[P_SMEAR] && !mockDisabled()[P_TIMING_SHIFT] && mockDisabled()[P_FALLOFF], "camera enabling");
-    defs[P_PROFILE].u.pd.value = 1;
-    EffectMain(PF_Cmd_UPDATE_PARAMS_UI, &in, &out, ptrs.data(), nullptr, nullptr);
-    CHECK(!mockDisabled()[P_SMEAR] && mockDisabled()[P_TIMING_SHIFT] && !mockDisabled()[P_FALLOFF] && mockDisabled()[P_GHOST_COUNT] && mockDisabled()[P_SHAKE_AMOUNT], "fade enabling");
-
-    // Warp enabling: everything but the checkbox is greyed out until it is on.
-    defs[P_WARP].u.bd.value = 0;
-    EffectMain(PF_Cmd_UPDATE_PARAMS_UI, &in, &out, ptrs.data(), nullptr, nullptr);
-    CHECK(!mockDisabled()[P_WARP] && mockDisabled()[P_FLOW_LENGTH] && mockDisabled()[P_PULL_POINT] && mockDisabled()[P_WARP_LEVELS], "warp off enabling");
-    defs[P_WARP].u.bd.value = 1;
-    defs[P_MOTION_RESPONSE].u.fs_d.value = 0.0;
-    defs[P_LUMA_RESPONSE].u.fs_d.value = 0.0;
-    defs[P_AUTO_STRENGTH].u.fs_d.value = 0.0;
-    EffectMain(PF_Cmd_UPDATE_PARAMS_UI, &in, &out, ptrs.data(), nullptr, nullptr);
-    CHECK(!mockDisabled()[P_FLOW_LENGTH] && !mockDisabled()[P_PULL_POINT] && mockDisabled()[P_MOTION_SENS] && mockDisabled()[P_HISTORY] && mockDisabled()[P_LENGTH_REACTION],
-          "warp on, no reaction enabling");
-    defs[P_MOTION_RESPONSE].u.fs_d.value = 50.0;
-    EffectMain(PF_Cmd_UPDATE_PARAMS_UI, &in, &out, ptrs.data(), nullptr, nullptr);
-    CHECK(!mockDisabled()[P_MOTION_SENS] && !mockDisabled()[P_HISTORY] && !mockDisabled()[P_LENGTH_REACTION], "motion response enables its controls");
 
     // Pre-render.
     in.width = 96; in.height = 54;
@@ -371,6 +358,106 @@ int main() {
         in.current_time = 0;
     }
     mockOverrides().clear();
+
+    // Control input: the layer is requested only when the control reads it, stretched to the layer's size, and a
+    // missing layer simply switches the control off.
+    {
+        mockFormat() = PF_PixelFormat_ARGB128;
+        const size_t bpp = 16;
+        auto popup = [&](int v) { PF_ParamDef d; d.u.pd.value = v; mockOverrides()[P_CONTROL_INPUT] = d; };
+        auto number = [&](int slot, double v) { PF_ParamDef d; d.u.fs_d.value = v; mockOverrides()[slot] = d; };
+        mockOverrides().clear();
+        g_controlRequests = 0;
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
+        CHECK(g_controlRequests == 0, "control off still asked for the control layer");
+        // the host numbers the menu items from 1: Off is 1, Control Layer: Luminance is 2, This Layer: Alpha is 8
+        popup(8);
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
+        CHECK(g_controlRequests == 0, "This Layer asked for the control layer");
+        popup(2);
+        g_controlRequests = 0;
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
+        CHECK(g_controlRequests == 1, "a control layer mode asked %d times for the control layer", g_controlRequests);
+
+        // pictures: this layer, and a control layer of another size
+        Image sceneC(96, 54, 4);
+        for (int y = 0; y < 54; ++y)
+            for (int x = 0; x < 96; ++x) {
+                float* px = sceneC.row(y) + x * 4;
+                const bool dot = (std::abs(x - 24) < 2 || std::abs(x - 72) < 2) && std::abs(y - 40) < 2;
+                px[0] = px[1] = px[2] = dot ? 3.0f : 0.02f;
+                px[3] = x < 48 ? 1.0f : 0.5f;
+            }
+        std::vector<char> inBuf(96 * 54 * bpp), ctlBuf(48 * 27 * bpp), outBuf(96 * 54 * bpp);
+        PF_EffectWorld inW{inBuf.data(), static_cast<A_long>(96 * bpp), 96, 54, 0, 0};
+        PF_EffectWorld ctlW{ctlBuf.data(), static_cast<A_long>(48 * bpp), 48, 27, 0, 0};
+        PF_EffectWorld outW{outBuf.data(), static_cast<A_long>(96 * bpp), 96, 54, 0, 0};
+        writeWorld(sceneC, &inW, PF_PixelFormat_ARGB128, 0, 0);
+        Image ctlImg(48, 27, 4);
+        for (int y = 0; y < 27; ++y)
+            for (int x = 0; x < 48; ++x) {
+                float* px = ctlImg.row(y) + x * 4;
+                px[0] = px[1] = px[2] = x < 24 ? 1.0f : 0.0f;  // the left half of the control is white
+                px[3] = 1.0f;
+            }
+        writeWorld(ctlImg, &ctlW, PF_PixelFormat_ARGB128, 0, 0);
+        g_in = &inW; g_out = &outW;
+        number(P_LENGTH, 80.0);
+        number(P_CONTROL_MATTE, 0.0);
+        number(P_CONTROL_EMIT, 100.0);
+
+        auto render = [&](Image& got) {
+            CHECK(EffectMain(PF_Cmd_SMART_RENDER, &in, &out, params, nullptr, &sre) == 0, "control render");
+            readWorld(&outW, PF_PixelFormat_ARGB128, got);
+        };
+        auto expect = [&](const Image* control, Image& dst) {
+            Params pp = readParams(&in, 96, 54);
+            Image tmp = sceneC;
+            timeyum::process(pp, tmp, dst, 0.0, 24000.0 / 1001.0, nullptr, control);
+        };
+
+        // control layer, luminance, stretched from 48 x 27 to 96 x 54
+        popup(2);  // Control Layer: Luminance
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
+        g_past[CHECKOUT_CONTROL] = &ctlW;
+        g_checkouts = g_checkins = 0;
+        Image got, want;
+        render(got);
+        CHECK(g_checkouts == 2 && g_checkins == 2, "the render checked out %d and in %d layers (input and control, expected 2 each)", g_checkouts, g_checkins);
+        const Image stretched = stretchWorld(&ctlW, PF_PixelFormat_ARGB128, 96, 54);
+        CHECK(std::fabs(stretched.row(10)[10 * 4] - 1.f) < 1e-6f && std::fabs(stretched.row(10)[80 * 4]) < 1e-6f, "stretching the control layer");
+        expect(&stretched, want);
+        double worst = 0, streakLeft = 0, streakRight = 0;
+        for (size_t i = 0; i < got.data.size(); ++i) worst = std::fmax(worst, std::fabs(got.data[i] - want.data[i]));
+        for (int y = 0; y < 38; ++y) { streakLeft = std::fmax(streakLeft, got.row(y)[24 * 4] - sceneC.row(y)[24 * 4]); streakRight = std::fmax(streakRight, got.row(y)[72 * 4] - sceneC.row(y)[72 * 4]); }
+        CHECK(worst < 1e-6, "control layer render differs from the core by %g", worst);
+        CHECK(streakLeft > 0.01 && streakRight < 1e-6, "streaks should come from the white side only: left %g right %g", streakLeft, streakRight);
+
+        // This Layer: Alpha reads the layer itself (alpha 1 on the left, 0.5 on the right)
+        popup(8);
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
+        render(got);
+        expect(&sceneC, want);
+        worst = 0;
+        for (size_t i = 0; i < got.data.size(); ++i) worst = std::fmax(worst, std::fabs(got.data[i] - want.data[i]));
+        CHECK(worst < 1e-6, "This Layer: Alpha differs from the core by %g", worst);
+
+        // a control layer that is not there: the control is off and the plain effect is rendered
+        popup(2);
+        g_past[CHECKOUT_CONTROL] = nullptr;
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
+        render(got);
+        {
+            Params pp = readParams(&in, 96, 54);
+            pp.control = timeyum::kCtlOff;
+            Image tmp = sceneC;
+            timeyum::process(pp, tmp, want, 0.0, 24000.0 / 1001.0);
+        }
+        worst = 0;
+        for (size_t i = 0; i < got.data.size(); ++i) worst = std::fmax(worst, std::fabs(got.data[i] - want.data[i]));
+        CHECK(worst < 1e-6, "a missing control layer should give the plain effect (%g)", worst);
+        mockOverrides().clear();
+    }
 
     // The pull point is a fraction of the layer whatever the preview resolution: at half resolution the layer
     // is 96 x 54 pixels in the buffers and 192 x 108 at full size.

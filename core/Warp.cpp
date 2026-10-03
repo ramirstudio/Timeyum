@@ -215,7 +215,26 @@ bool levelSupported(const std::vector<double>& ms, size_t li, double mMin, doubl
 // Field
 // ---------------------------------------------------------------------------------------------
 
-WarpField buildWarpField(const Params& p, int W, int H, const LumaGrid& cur, const std::vector<LumaGrid>& hist, double t) {
+std::vector<float> makeControlGrid(const float* plane, int W, int H) {
+    const double cell = warpCellSize(W, H);
+    const int gw = static_cast<int>(std::floor(W / cell + 0.5)) + 1, gh = static_cast<int>(std::floor(H / cell + 0.5)) + 1;
+    std::vector<float> sum(static_cast<size_t>(gw) * gh, 0.f), cnt(sum.size(), 0.f);
+    std::vector<int> col(W);
+    for (int x = 0; x < W; ++x) col[x] = std::min(static_cast<int>(std::floor((x + 0.5) / cell + 0.5)), gw - 1);
+    for (int y = 0; y < H; ++y) {
+        const int j = std::min(static_cast<int>(std::floor((y + 0.5) / cell + 0.5)), gh - 1);
+        for (int x = 0; x < W; ++x) {
+            const size_t i = static_cast<size_t>(j) * gw + col[x];
+            sum[i] += plane[static_cast<size_t>(y) * W + x];
+            cnt[i] += 1.f;
+        }
+    }
+    for (size_t i = 0; i < sum.size(); ++i) sum[i] = cnt[i] > 0.f ? sum[i] / cnt[i] : 0.f;
+    return sum;
+}
+
+WarpField buildWarpField(const Params& p, int W, int H, const LumaGrid& cur, const std::vector<LumaGrid>& hist, double t,
+                         const std::vector<float>* ctlGrid) {
     WarpField f;
     f.gw = cur.w;
     f.gh = cur.h;
@@ -273,12 +292,14 @@ WarpField buildWarpField(const Params& p, int W, int H, const LumaGrid& cur, con
         }
     }
 
-    // Reaction of the video: a OR b.
-    const double lr = clamp01(p.luma_response), mr = clamp01(p.motion_response);
+    // Reaction of the video and of the control input: a OR b OR c.
+    const double lr = clamp01(p.luma_response), mr = clamp01(p.motion_response), cr = clamp01(p.control_warp);
+    const bool haveCtl = ctlGrid && ctlGrid->size() == n && cr > 0.0;
     for (size_t i = 0; i < n; ++i) {
         const double a = needLuma ? lr * clamp01(luma[i]) : 0.0;
         const double b = motion.empty() ? 0.0 : mr * clamp01(motion[i]);
-        f.reaction[i] = static_cast<float>(1.0 - (1.0 - a) * (1.0 - b));
+        const double c = haveCtl ? cr * clamp01((*ctlGrid)[i]) : 0.0;
+        f.reaction[i] = static_cast<float>(1.0 - (1.0 - a) * (1.0 - b) * (1.0 - c));
     }
 
     // Attractors: the interactive point and the bright area of the video.
@@ -307,7 +328,7 @@ WarpField buildWarpField(const Params& p, int W, int H, const LumaGrid& cur, con
         }
     }
 
-    const bool reactive = p.luma_response > 0.0 || p.motion_response > 0.0;
+    const bool reactive = p.luma_response > 0.0 || p.motion_response > 0.0 || haveCtl;
     const double flowLen = std::max(p.flow_length, 0.0);
     const double lenReact = reactive ? std::max(p.length_reaction, 0.0) : 0.0;
     const double pullLen = std::max(p.pull_length, 0.0);

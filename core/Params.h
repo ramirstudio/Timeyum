@@ -9,6 +9,7 @@ enum EdgeMode { kEdgeWrap = 0, kEdgeExtend = 1, kEdgeMirror = 2, kEdgeBlack = 3 
 enum BlendMode { kBlendExposure = 0, kBlendAdd = 1, kBlendScreen = 2, kBlendLighten = 3 };
 enum ColorSpace { kCsLinear = 0, kCsSrgb = 1, kCsGamma24 = 2, kCsLogC3 = 3, kCsSLog3 = 4 };
 enum WarpView { kViewResult = 0, kViewLength = 1, kViewReaction = 2, kViewDisplacement = 3 };
+enum ControlChannel { kCtlOff = 0, kCtlLuma = 1, kCtlAlpha = 2, kCtlRed = 3, kCtlGreen = 4, kCtlBlue = 5, kCtlDepth = 6 };
 
 // Percentages are fractions (0.35 = 35%), angles are degrees. Lengths and offsets
 // are fractions of the frame height unless the name ends in _px.
@@ -111,6 +112,19 @@ struct Params {
     double base_follow = 0.25;        // share of the displacement applied to the sharp image
     int warp_levels = 6;              // streak length steps blended per pixel (cost grows with it)
     int warp_view = kViewResult;
+
+    // Control input: a matte, a mask, an alpha channel or a depth map that steers the effect. The caller
+    // supplies the picture; control says which channel of it is read.
+    int control = kCtlOff;
+    bool control_invert = false;
+    double control_black = 0.0, control_white = 1.0;  // levels applied to the channel
+    double control_near = 0.0, control_far = 100.0;   // Z-Depth: the distances that map to 1 and to 0
+    double control_softness = 0.0;                    // blur of the control, in pixels
+    double control_matte = 1.0;                       // 1: the effect shows only where the control is white
+    double control_emit = 0.0;                        // 1: streaks come only from where the control is white
+    double control_length = 0.0;                      // 1: the streak length follows the control
+    double control_warp = 0.0;                        // 1: the control drives the warp, like the reaction to the video
+    bool control_view = false;                        // show the mapped control instead of the result
 
     // Set by resolveShake
     double weave_x = 0.0;

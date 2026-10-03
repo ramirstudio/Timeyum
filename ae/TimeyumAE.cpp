@@ -40,10 +40,10 @@
 #include "TimeyumParams.h"
 
 #ifdef TIMEYUM_BANNER
-static_assert(TY_OUT_FLAGS == (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI | PF_OutFlag_CUSTOM_UI),
+static_assert(TY_OUT_FLAGS == (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_CUSTOM_UI),
               "TY_OUT_FLAGS does not match the SDK flags, fix TimeyumFlags.h");
 #else
-static_assert(TY_OUT_FLAGS == (PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI),
+static_assert(TY_OUT_FLAGS == PF_OutFlag_DEEP_COLOR_AWARE,
               "TY_OUT_FLAGS does not match the SDK flags, fix TimeyumFlags.h");
 #endif
 static_assert(TY_OUT_FLAGS2 == (PF_OutFlag2_SUPPORTS_SMART_RENDER | PF_OutFlag2_FLOAT_COLOR_AWARE | PF_OutFlag2_SUPPORTS_THREADED_RENDERING),
@@ -117,7 +117,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Opacity", 0, 100, 0, 100, 100, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_OPACITY);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_POPUPX("Streak Model", 3, 1, "Fade|Exponential|Camera (Timing Shift)", PF_ParamFlag_SUPERVISE, ID_PROFILE);
+    PF_ADD_POPUPX("Streak Model", 3, 1, "Fade|Exponential|Camera (Timing Shift)", 0, ID_PROFILE);
 
     AEFX_CLR_STRUCT(def);
     PF_ADD_TOPIC("Streak", ID_STREAK_TOPIC);
@@ -126,13 +126,13 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_ANGLE("Angle", 90, ID_ANGLE);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Symmetric", FALSE, PF_ParamFlag_SUPERVISE, ID_SYMMETRIC);
+    PF_ADD_CHECKBOXX("Symmetric", FALSE, 0, ID_SYMMETRIC);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Back Length", 0, 200, 0, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_BACK_LENGTH);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Start Offset", 0, 100, 0, 50, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_START_OFFSET);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_POPUPX("Edge Behavior", 4, 1, "Wrap-Around|Extend|Mirror|Black", PF_ParamFlag_SUPERVISE, ID_EDGE);
+    PF_ADD_POPUPX("Edge Behavior", 4, 1, "Wrap-Around|Extend|Mirror|Black", 0, ID_EDGE);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Frame Line Gap", 0, 50, 0, 10, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_FRAME_GAP);
     AEFX_CLR_STRUCT(def);
@@ -171,7 +171,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_POPUP("Blend", 4, 1, "Exposure|Add|Screen|Lighten", ID_BLEND);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_FLOAT_SLIDERX("Threshold", 0, 1000, 0, 2, 0, PF_Precision_HUNDREDTHS, 0, PF_ParamFlag_SUPERVISE, ID_THRESHOLD);
+    PF_ADD_FLOAT_SLIDERX("Threshold", 0, 1000, 0, 2, 0, PF_Precision_HUNDREDTHS, 0, 0, ID_THRESHOLD);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Knee", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_KNEE);
     AEFX_CLR_STRUCT(def);
@@ -182,7 +182,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_TOPIC("Ghost", ID_GHOST_TOPIC);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Enable", FALSE, PF_ParamFlag_SUPERVISE, ID_GHOST);
+    PF_ADD_CHECKBOXX("Enable", FALSE, 0, ID_GHOST);
     AEFX_CLR_STRUCT(def);
     PF_ADD_SLIDER("Count", 1, 16, 1, 8, 1, ID_GHOST_COUNT);
     AEFX_CLR_STRUCT(def);
@@ -225,7 +225,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_TOPIC("Shake", ID_SHAKE_TOPIC);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Enable", FALSE, PF_ParamFlag_SUPERVISE, ID_SHAKE);
+    PF_ADD_CHECKBOXX("Enable", FALSE, 0, ID_SHAKE);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Amount", 0, 1000, 0, 200, 100, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_SHAKE_AMOUNT);
     AEFX_CLR_STRUCT(def);
@@ -263,9 +263,43 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     PF_END_TOPIC(ID_OUTPUT_END);
 
     AEFX_CLR_STRUCT(def);
+    PF_ADD_TOPIC("Control", ID_CONTROL_TOPIC);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_POPUP("Control Input", 9, 1,
+                 "Off|Control Layer: Luminance|Control Layer: Alpha|Control Layer: Red|Control Layer: Green|Control Layer: Blue|"
+                 "Control Layer: Z-Depth|This Layer: Alpha|This Layer: Luminance",
+                 ID_CONTROL_INPUT);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_LAYER("Control Layer", PF_LayerDefault_NONE, ID_CONTROL_LAYER);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_CHECKBOX("Invert Control", "On", FALSE, 0, ID_CONTROL_INVERT);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Black Point", -1000, 1000, -1, 1, 0, PF_Precision_HUNDREDTHS, 0, 0, ID_CONTROL_BLACK);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("White Point", -1000, 1000, -1, 1, 1, PF_Precision_HUNDREDTHS, 0, 0, ID_CONTROL_WHITE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Depth Near", -100000, 100000, 0, 1000, 0, PF_Precision_TENTHS, 0, 0, ID_CONTROL_NEAR);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Depth Far", -100000, 100000, 0, 1000, 100, PF_Precision_TENTHS, 0, 0, ID_CONTROL_FAR);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Control Softness (px)", 0, 500, 0, 50, 0, PF_Precision_TENTHS, 0, 0, ID_CONTROL_SOFTNESS);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Effect Matte", 0, 100, 0, 100, 100, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_CONTROL_MATTE);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Streak Source Matte", 0, 100, 0, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_CONTROL_EMIT);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Streak Length from Control", 0, 100, 0, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_CONTROL_LENGTH);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_FLOAT_SLIDERX("Warp Drive from Control", 0, 100, 0, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_CONTROL_WARP);
+    AEFX_CLR_STRUCT(def);
+    PF_ADD_CHECKBOX("Show Control", "On", FALSE, 0, ID_CONTROL_VIEW);
+    AEFX_CLR_STRUCT(def);
+    PF_END_TOPIC(ID_CONTROL_END);
+
+    AEFX_CLR_STRUCT(def);
     PF_ADD_TOPIC("Warp", ID_WARP_TOPIC);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_CHECKBOXX("Enable", FALSE, PF_ParamFlag_SUPERVISE, ID_WARP);
+    PF_ADD_CHECKBOXX("Enable", FALSE, 0, ID_WARP);
     AEFX_CLR_STRUCT(def);
     PF_ADD_POPUP("View", 4, 1, "Result|Length Map|Reaction|Displacement", ID_WARP_VIEW);
     AEFX_CLR_STRUCT(def);
@@ -273,7 +307,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Flow Length", 0, 100, 0, 100, 60, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_FLOW_LENGTH);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_FLOAT_SLIDERX("Flow Wave", 0, 30, 0, 8, 1.2, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_FLOW_WAVE);
+    PF_ADD_FLOAT_SLIDERX("Flow Wave", 0, 30, 0, 8, 1.2, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_FLOW_WAVE);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Flow Scale", 2, 150, 5, 100, 35, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_FLOW_SCALE);
     AEFX_CLR_STRUCT(def);
@@ -287,15 +321,15 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Drift Speed", 0, 200, 0, 50, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_DRIFT_SPEED);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_FLOAT_SLIDERX("Brightness Response", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_LUMA_RESPONSE);
+    PF_ADD_FLOAT_SLIDERX("Brightness Response", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_LUMA_RESPONSE);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Reaction Softness", 0, 30, 0, 15, 4, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_LUMA_SOFTNESS);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_FLOAT_SLIDERX("Motion Response", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_MOTION_RESPONSE);
+    PF_ADD_FLOAT_SLIDERX("Motion Response", 0, 100, 0, 100, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_MOTION_RESPONSE);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Motion Sensitivity", 0, 50, 0, 20, 4, PF_Precision_TENTHS, 0, 0, ID_MOTION_SENS);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_FLOAT_SLIDERX("Inertia", 0, 100, 0, 100, 60, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_INERTIA);
+    PF_ADD_FLOAT_SLIDERX("Inertia", 0, 100, 0, 100, 60, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_INERTIA);
     AEFX_CLR_STRUCT(def);
     PF_ADD_SLIDER("History Frames", 0, 8, 0, 8, 4, ID_HISTORY);
     AEFX_CLR_STRUCT(def);
@@ -311,7 +345,7 @@ PF_Err addParams(PF_InData* in_data, PF_OutData* out_data) {
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Pull Length", 0, 300, 0, 200, 50, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_PULL_LENGTH);
     AEFX_CLR_STRUCT(def);
-    PF_ADD_FLOAT_SLIDERX("Auto Target Strength", -100, 100, -100, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_SUPERVISE, ID_AUTO_STRENGTH);
+    PF_ADD_FLOAT_SLIDERX("Auto Target Strength", -100, 100, -100, 100, 0, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_AUTO_STRENGTH);
     AEFX_CLR_STRUCT(def);
     PF_ADD_FLOAT_SLIDERX("Base Follow", 0, 100, 0, 100, 25, PF_Precision_TENTHS, PF_ValueDisplayFlag_PERCENT, 0, ID_BASE_FOLLOW);
     AEFX_CLR_STRUCT(def);
@@ -449,6 +483,21 @@ Params readParams(PF_InData* in, double layerW = 0.0, double layerH = 0.0) {
     p.colorspace = r.popup(P_COLORSPACE);
     p.affect_alpha = r.check(P_AFFECT_ALPHA);
 
+    // Control Input: 0 off, 1 to 6 a channel of the control layer, 7 and 8 the alpha or luminance of this layer.
+    const int ci = r.popup(P_CONTROL_INPUT);
+    p.control = ci <= 0 ? timeyum::kCtlOff : (ci <= 6 ? ci : (ci == 7 ? timeyum::kCtlAlpha : timeyum::kCtlLuma));
+    p.control_invert = r.check(P_CONTROL_INVERT);
+    p.control_black = r.real(P_CONTROL_BLACK);
+    p.control_white = r.real(P_CONTROL_WHITE);
+    p.control_near = r.real(P_CONTROL_NEAR);
+    p.control_far = r.real(P_CONTROL_FAR);
+    p.control_softness = r.real(P_CONTROL_SOFTNESS);
+    p.control_matte = r.real(P_CONTROL_MATTE) / 100.0;
+    p.control_emit = r.real(P_CONTROL_EMIT) / 100.0;
+    p.control_length = r.real(P_CONTROL_LENGTH) / 100.0;
+    p.control_warp = r.real(P_CONTROL_WARP) / 100.0;
+    p.control_view = r.check(P_CONTROL_VIEW);
+
     p.warp = r.check(P_WARP);
     p.warp_view = r.popup(P_WARP_VIEW);
     p.warp_amount = r.real(P_WARP_AMOUNT) / 100.0;
@@ -540,6 +589,31 @@ void writeWorld(const Image& img, PF_EffectWorld* w, PF_PixelFormat fmt, int dx,
     }
 }
 
+// The control layer is stretched to fit the layer the effect is on, whatever its own size (as Lensyum does with
+// its depth layer): both worlds cover their whole layers.
+Image stretchWorld(const PF_EffectWorld* w, PF_PixelFormat fmt, int W, int H) {
+    Image src;
+    readWorld(w, fmt, src);
+    if (src.width == W && src.height == H) return src;
+    Image out(W, H, 4);
+    for (int y = 0; y < H; ++y) {
+        const double sy = std::min(std::max((y + 0.5) * src.height / H - 0.5, 0.0), src.height - 1.0);
+        const int y0 = static_cast<int>(sy), y1 = std::min(y0 + 1, src.height - 1);
+        const float fy = static_cast<float>(sy - y0);
+        for (int x = 0; x < W; ++x) {
+            const double sx = std::min(std::max((x + 0.5) * src.width / W - 0.5, 0.0), src.width - 1.0);
+            const int x0 = static_cast<int>(sx), x1 = std::min(x0 + 1, src.width - 1);
+            const float fx = static_cast<float>(sx - x0);
+            for (int c = 0; c < 4; ++c) {
+                const float a = src.row(y0)[x0 * 4 + c], b = src.row(y0)[x1 * 4 + c], d = src.row(y1)[x0 * 4 + c], e = src.row(y1)[x1 * 4 + c];
+                const float top = a + (b - a) * fx, bot = d + (e - d) * fx;
+                out.row(y)[x * 4 + c] = top + (bot - top) * fy;
+            }
+        }
+    }
+    return out;
+}
+
 // AE hands over premultiplied colour. Non-linear input spaces must be decoded on straight colour,
 // so the wrapper converts around the core (which then runs in linear light, premultiplied).
 void decodeRow(float* px, int count, int cs) {
@@ -580,49 +654,6 @@ PF_Err globalSetup(PF_OutData* out_data) {
     return PF_Err_NONE;
 }
 
-void setEnabled(PF_InData* in_data, PF_ParamDef* params[], AEGP_SuiteHandler& suites, int index, bool enabled) {
-    PF_ParamDef copy = *params[index];
-    if (enabled) copy.ui_flags &= ~PF_PUI_DISABLED;
-    else copy.ui_flags |= PF_PUI_DISABLED;
-    suites.ParamUtilsSuite3()->PF_UpdateParamUI(in_data->effect_ref, index, &copy);
-}
-
-PF_Err updateParamsUI(PF_InData* in_data, PF_ParamDef* params[]) {
-    AEGP_SuiteHandler suites(in_data->pica_basicP);
-    const int profile = params[P_PROFILE]->u.pd.value - 1;
-    const bool camera = profile == 2;
-    const bool wrap = params[P_EDGE]->u.pd.value - 1 == 0;
-    for (int i : {P_SMEAR, P_SYMMETRIC, P_START_OFFSET}) setEnabled(in_data, params, suites, i, !camera);
-    setEnabled(in_data, params, suites, P_BACK_LENGTH, !camera && !params[P_SYMMETRIC]->u.bd.value);
-    setEnabled(in_data, params, suites, P_FALLOFF, profile == 0);
-    setEnabled(in_data, params, suites, P_FALLOFF_CURVE, profile == 0);
-    setEnabled(in_data, params, suites, P_DECAY, profile == 1);
-    for (int i : {P_TIMING_SHIFT, P_SHUTTER_ANGLE, P_PULLDOWN_ANGLE, P_CLAW_EASE}) setEnabled(in_data, params, suites, i, camera);
-    setEnabled(in_data, params, suites, P_FRAME_GAP, camera || wrap);
-    setEnabled(in_data, params, suites, P_KNEE, params[P_THRESHOLD]->u.fs_d.value > 0.0);
-    const bool ghost = params[P_GHOST]->u.bd.value != 0;
-    for (int i : {P_GHOST_COUNT, P_GHOST_OFFSET, P_GHOST_STRENGTH, P_GHOST_DECAY, P_GHOST_LENGTH}) setEnabled(in_data, params, suites, i, ghost);
-    const bool shake = params[P_SHAKE]->u.bd.value != 0;
-    for (int i : {P_SHAKE_AMOUNT, P_SHAKE_FREQ, P_SHAKE_SMOOTH, P_SHAKE_SEED, P_SHAKE_LENGTH, P_SHAKE_SMEAR, P_SHAKE_ANGLE,
-                  P_SHAKE_TIMING, P_SHAKE_GHOST, P_SHAKE_ROLL, P_SHAKE_WEAVE_X, P_SHAKE_WEAVE_Y})
-        setEnabled(in_data, params, suites, i, shake);
-    const bool warp = params[P_WARP]->u.bd.value != 0;
-    const bool lumaOn = params[P_LUMA_RESPONSE]->u.fs_d.value > 0.0;
-    const bool motionOn = params[P_MOTION_RESPONSE]->u.fs_d.value > 0.0;
-    const bool waveOn = params[P_FLOW_WAVE]->u.fs_d.value > 0.0;
-    const bool autoOn = params[P_AUTO_STRENGTH]->u.fs_d.value != 0.0;
-    for (int i = P_WARP_VIEW; i < P_WARP_END; ++i) setEnabled(in_data, params, suites, i, warp);
-    if (warp) {
-        setEnabled(in_data, params, suites, P_LUMA_SOFTNESS, lumaOn || motionOn || autoOn);
-        setEnabled(in_data, params, suites, P_MOTION_SENS, motionOn);
-        setEnabled(in_data, params, suites, P_INERTIA, lumaOn || motionOn || autoOn);
-        setEnabled(in_data, params, suites, P_HISTORY, motionOn || ((lumaOn || autoOn) && params[P_INERTIA]->u.fs_d.value > 0.0));
-        setEnabled(in_data, params, suites, P_LENGTH_REACTION, lumaOn || motionOn);
-        setEnabled(in_data, params, suites, P_WAVE_REACTION, waveOn && (lumaOn || motionOn));
-    }
-    return PF_Err_NONE;
-}
-
 // What PreRender found out and SmartRender needs: where the input and the output buffers sit in layer
 // coordinates (the same scheme the Lensyum plug-in uses), and the full resolution size of the layer.
 struct PreRenderData {
@@ -657,10 +688,21 @@ PF_Err preRender(PF_InData* in_data, PF_OutData* out_data, PF_PreRenderExtra* ex
 #ifdef TIMEYUM_BANNER
         if (i == P_BANNER) continue;
 #endif
+        if (i == P_CONTROL_LAYER) continue;  // a layer parameter is checked out as a layer, below
         PF_ParamDef d;
         AEFX_CLR_STRUCT(d);
         ERR(PF_CHECKOUT_PARAM(in_data, i, in_data->current_time, in_data->time_step, in_data->time_scale, &d));
         ERR2(PF_CHECKIN_PARAM(in_data, &d));
+    }
+    // The control layer, only when the control reads one (Control Input 1 to 6).
+    if (!err) {
+        ParamReader reader(in_data);
+        const int ci = reader.popup(P_CONTROL_INPUT);
+        if (ci >= 1 && ci <= 6) {
+            PF_CheckoutResult controlRes;
+            ERR(extra->cb->checkout_layer(in_data->effect_ref, P_CONTROL_LAYER, CHECKOUT_CONTROL, &inReq, in_data->current_time, in_data->time_step,
+                                          in_data->time_scale, &controlRes));
+        }
     }
     // The warp reacts to motion: ask for the frames before this one.
     if (!err) {
@@ -726,6 +768,27 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
 
                 Image src, dst;
                 readWorld(input, fmt, src);
+
+                // The picture the control input reads, as it is (not decoded): this layer, or the control layer.
+                Image controlPicture;
+                const Image* controlPtr = nullptr;
+                if (p.control != timeyum::kCtlOff) {
+                    const int controlInput = ParamReader(in_data).popup(P_CONTROL_INPUT);
+                    if (controlInput >= 7) {
+                        controlPicture = src;
+                        controlPtr = &controlPicture;
+                    } else {
+                        PF_EffectWorld* cw = nullptr;
+                        if (extra->cb->checkout_layer_pixels(in_data->effect_ref, CHECKOUT_CONTROL, &cw) == PF_Err_NONE) {
+                            PF_PixelFormat cf = PF_PixelFormat_INVALID;
+                            if (cw && cw->width > 0 && cw->height > 0 && worldSuite->PF_GetPixelFormat(cw, &cf) == PF_Err_NONE) {
+                                controlPicture = stretchWorld(cw, cf, src.width, src.height);
+                                controlPtr = &controlPicture;
+                            }
+                            extra->cb->checkin_layer_pixels(in_data->effect_ref, CHECKOUT_CONTROL);
+                        }
+                    }
+                }
                 decodeColor(src, cs);
 
                 const int need = timeyum::warpHistoryCount(p);
@@ -745,7 +808,7 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
                     }
                     extra->cb->checkin_layer_pixels(in_data->effect_ref, i);
                 }
-                timeyum::process(p, src, dst, frame, fps, &history);
+                timeyum::process(p, src, dst, frame, fps, &history, controlPtr);
                 encodeColor(dst, cs);
 
                 // Both buffers are windows on the layer: the output pixel (0, 0) is at layer position
@@ -957,7 +1020,6 @@ DllExport PF_Err EffectMain(PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data
             case PF_Cmd_ABOUT: err = about(in_data, out_data); break;
             case PF_Cmd_GLOBAL_SETUP: err = globalSetup(out_data); break;
             case PF_Cmd_PARAMS_SETUP: err = addParams(in_data, out_data); break;
-            case PF_Cmd_UPDATE_PARAMS_UI: err = updateParamsUI(in_data, params); break;
             case PF_Cmd_SMART_PRE_RENDER: err = preRender(in_data, out_data, reinterpret_cast<PF_PreRenderExtra*>(extra)); break;
             case PF_Cmd_SMART_RENDER: err = smartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra)); break;
 #if defined(TIMEYUM_BANNER) && !defined(TIMEYUM_MOCK_SDK)

@@ -12,6 +12,8 @@ With the defaults you get a vertical streak that rises from every bright area of
 
 Streaks are made from light, so the effect is most visible on footage with strong highlights against darker areas, and it responds best to footage that still has highlight detail. If you work in 8 or 16 bits per channel with a non-linear project, set Input Space to sRGB. If the project works in linear light (linear blending, or 32 bits per channel with a linear working space), leave it on Linear.
 
+Every control is always available and none is ever greyed out. A control that does not apply to the current settings, such as Decay in the Fade model, is simply ignored.
+
 Angles follow one convention everywhere: 90 degrees points up, 0 points right, 180 left and -90 down.
 
 ## Main controls
@@ -26,7 +28,7 @@ Angles follow one convention everywhere: 90 degrees points up, 0 points right, 1
 
 **Angle** is the direction of the streak.
 
-**Symmetric** extends the streak in both directions. **Back Length** adds a second streak in the opposite direction, as a percentage of the main one; it is off in the Camera model and when Symmetric is on.
+**Symmetric** extends the streak in both directions. **Back Length** adds a second streak in the opposite direction, as a percentage of the main one; it has no effect in the Camera model or when Symmetric is on.
 
 **Start Offset** moves the beginning of the streak away from the object that produced it.
 
@@ -80,6 +82,24 @@ The Jitter controls set how much each property varies: **Length Jitter**, **Smea
 
 **Input Space** tells Timeyum how the pixel values are encoded: Linear, sRGB, Gamma 2.4, ARRI LogC3 or Sony S-Log3. The effect converts to linear light, works there and converts back. **Smear Alpha** extends the streak to the alpha channel, so it stays visible when the layer is composited over another background.
 
+## Control
+
+The control input lets a picture steer the effect: a matte, a mask, an alpha channel, or a depth map. Choose the picture with **Control Input**.
+
+Off means no control. The six Control Layer choices (Luminance, Alpha, Red, Green, Blue and Z-Depth) read the layer you pick in **Control Layer**. It can be any layer: a solid with masks, a precomp, a render pass, footage with an alpha channel. If your version of After Effects offers the Source, Masks and Effects & Masks menu next to the layer, choose Effects & Masks to use the layer as it looks after its own masks and effects. The control layer is stretched to the size of the layer Timeyum is on. The two This Layer choices (Alpha and Luminance) read the layer Timeyum is applied to; masks on that layer count, because After Effects applies masks before effects.
+
+The picture is read as it is, with the numbers After Effects gives, without any colour conversion. White (1.0) means full control, black (0) means none.
+
+**Z-Depth** is for depth passes that store a distance, usually at 32 bits per channel with values far above 1. Anything at **Depth Near** or closer counts as 1, anything at **Depth Far** or beyond counts as 0, and in between it changes linearly. For an ordinary grayscale depth map use Luminance, and turn on **Invert Control** if black is near.
+
+**Black Point** and **White Point** are levels applied after the channel is read: values at or below the black point become 0 and values at or above the white point become 1. **Invert Control** swaps black and white. **Control Softness (px)** blurs the control so its edges are soft; it follows the preview resolution.
+
+Four amounts decide what the control steers, and they can be combined.
+
+**Effect Matte** shows the effect only where the control is white and the original image everywhere else. It is at 100% by default, so as soon as you choose a control input the effect appears only inside it. **Streak Source Matte** makes the streaks come only from the white areas; the light of the black areas stays in place and sharp. **Streak Length from Control** makes the length of each streak follow the control: white gives the full Length, black gives no streak, grays give something in between. With Warp on it multiplies the length variation of the Warp. **Warp Drive from Control** lets the control drive the Warp the way the video does: where it is white, the Length Reaction applies and the Wave Reaction lets the flow wave through.
+
+**Show Control** replaces the picture with the control after the levels, the inversion and the softness, which is the quickest way to tune it.
+
 ## Warp
 
 Warp stops the streaks from being uniform. Their length and position change from place to place, smoothly and continuously in time, driven by an animated flow, by the video itself and by points you control. Turn it on with Enable.
@@ -123,6 +143,8 @@ Timeyum runs on the CPU and uses every core. A frame takes a fraction of a secon
 The effect is not in the menu. If you downloaded the zip, right-click it, choose Properties and tick Unblock before extracting. Check that Timeyum.aex is in the MediaCore folder described in INSTALL.txt, that After Effects was closed during the copy, and that you are using a 64 bit Windows version of After Effects 2026.
 
 The layer turns black or the effect shows an error. Timeyum writes what happened to timeyum_log.txt in your temporary folder (type %TEMP% in the Explorer address bar): the size and position of the layer it received, and the reason for any error. Send that file to support together with the size of the layer and of the composition.
+
+Nothing changes when I choose a control layer. Check that Control Input is not Off, that Control Layer is not None, and that at least one of the four amounts is above 0. Turn on Show Control to see what Timeyum reads.
 
 The picture at the top of the panel is missing. The same log file has the reason. The effect works without the picture.
 

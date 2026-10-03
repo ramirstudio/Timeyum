@@ -2,7 +2,7 @@
 
 Timeyum is an After Effects effect that reproduces the look of a film camera whose shutter is out of phase with the pull-down claw, the fault an ARRI Timing Shift Box creates on purpose. Bright areas leave streaks along the direction the film travels, and what leaves the frame comes back from the opposite edge.
 
-It has a physical camera model (timing shift, shutter angle, pull-down angle, claw ease), three artistic streak profiles, edge behaviours, ghost echoes, frame roll with a frame line, chromatic spread, a deterministic shake, and a Warp mode in which the streaks vary across the frame, flow, and react to the brightness and the motion of the video, with an interactive pull point. It runs on the CPU, at 8, 16 and 32 bits per channel, with multi-frame rendering.
+It has a physical camera model (timing shift, shutter angle, pull-down angle, claw ease), three artistic streak profiles, edge behaviours, ghost echoes, frame roll with a frame line, chromatic spread, a deterministic shake, and a control input (a matte, alpha channel or depth map decides where the effect shows, where streaks come from and how long they are), and a Warp mode in which the streaks vary across the frame, flow, and react to the brightness and the motion of the video, with an interactive pull point. It runs on the CPU, at 8, 16 and 32 bits per channel, with multi-frame rendering.
 
 The user documentation is `docs/USER_GUIDE.md`, installation is in `docs/INSTALL.txt`, and the design of the engine is in `docs/ARCHITECTURE.md`. The licence is in `LICENSE`: the software is proprietary and all rights are reserved.
 
@@ -39,8 +39,9 @@ The result is `build\Release\Timeyum.aex`. If PiPLtool produces an empty resourc
 cmake -S . -B build && cmake --build build
 build/timeyum_cli in.ppm out.ppm profile=camera length=1 timing_shift=100 chroma=0.05
 build/timeyum_cli --seq in_%04d.ppm out_%04d.ppm 1 48 warp=1 fps=24
+build/timeyum_cli in.ppm out.ppm control_file=matte.ppm control=luma control_matte=1 control_emit=1
 build/timeyum_cli --list
 cd build && ctest
 ```
 
-The tool reads and writes `.ppm`, `.pam` (8 bit, with alpha), `.pfm` and `.tyf` (float). 8 bit files are treated as sRGB and float files as linear unless `space=` is given. Percentages are fractions (`length=0.6` is 60% of the frame height), angles are in degrees, and 90 is a streak going up. `--seq` reads the neighbouring frames for the warp by itself; for a single frame use `prev=f0011.ppm,f0010.ppm`. `warp_view=reaction` shows the reaction map. `ctest` runs four tests: FFT, warp properties, the comparison with the NumPy reference (needs `numpy`) and the wrapper against the mock SDK.
+The tool reads and writes `.ppm`, `.pam` (8 bit, with alpha), `.pfm` and `.tyf` (float). 8 bit files are treated as sRGB and float files as linear unless `space=` is given. Percentages are fractions (`length=0.6` is 60% of the frame height), angles are in degrees, and 90 is a streak going up. `--seq` reads the neighbouring frames for the warp by itself; for a single frame use `prev=f0011.ppm,f0010.ppm`. `warp_view=reaction` shows the reaction map. `control_file=` is the picture of the control input (it may contain `%04d` with `--seq`), `control=` picks the channel (off, luma, alpha, red, green, blue, depth) and `control_view=1` shows the mapped control; the picture is read as it is, with no colour conversion. `ctest` runs five tests: FFT, warp properties, the control input, the comparison with the NumPy reference (needs `numpy`) and the wrapper against the mock SDK.

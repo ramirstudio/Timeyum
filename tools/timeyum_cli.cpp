@@ -2,6 +2,9 @@
 //   timeyum_cli in.ppm out.ppm length=0.8 profile=camera timing_shift=100 frame=12 fps=24
 //   timeyum_cli in.ppm out.ppm warp=1 prev=f0011.ppm,f0010.ppm frame=12      (warp reaction to the video)
 //   timeyum_cli --seq in_%04d.ppm out_%04d.ppm 1 48 warp=1 fps=24            (a sequence, history is automatic)
+//   timeyum_cli in.ppm out.ppm control_file=matte.ppm control=luma control_matte=1     (a matte, alpha or depth map steers it)
+//   control_file may contain %04d in --seq mode. control= is one of off, luma, alpha, red, green, blue, depth.
+//   The control picture is read as it is, without any colour conversion.
 // Formats: .ppm (8 bit RGB), .pam (8 bit RGB or RGBA), .pfm (float RGB), .tyf (float, any 3-4 channels).
 // 8 bit files are read as sRGB, float files as linear, unless space= is given.
 
@@ -187,6 +190,8 @@ std::map<std::string, Setter> buildSetters() {
     REAL(motion_sensitivity); REAL(inertia); INT(history); REAL(length_reaction); REAL(wave_reaction); REAL(pull_x);
     REAL(pull_y); REAL(pull_strength); REAL(pull_radius); REAL(pull_length); REAL(auto_strength); REAL(base_follow);
     INT(warp_levels);
+    BOOL(control_invert); REAL(control_black); REAL(control_white); REAL(control_near); REAL(control_far);
+    REAL(control_softness); REAL(control_matte); REAL(control_emit); REAL(control_length); REAL(control_warp); BOOL(control_view);
 #undef REAL
 #undef INT
 #undef BOOL
@@ -194,6 +199,7 @@ std::map<std::string, Setter> buildSetters() {
     m["edge"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"wrap", "extend", "mirror", "black"}, p.edge); };
     m["blend"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"exposure", "add", "screen", "lighten"}, p.blend); };
     m["space"] = m["colorspace"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"linear", "srgb", "gamma24", "logc3", "slog3"}, p.colorspace); };
+    m["control"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"off", "luma", "alpha", "red", "green", "blue", "depth"}, p.control); };
     m["warp_view"] = [](Params& p, const std::string& v) { return lookupEnum(v, {"result", "length", "reaction", "displacement"}, p.warp_view); };
     m["curve"] = [](Params& p, const std::string& v) { p.curve = numbers(v); return true; };
     m["tint"] = [](Params& p, const std::string& v) {
@@ -208,7 +214,7 @@ std::map<std::string, Setter> buildSetters() {
 }  // namespace
 
 bool applyArgs(const std::map<std::string, Setter>& setters, int argc, char** argv, int first, Params& p, double& frame,
-               double& fps, bool& spaceGiven, std::vector<std::string>& prev) {
+               double& fps, bool& spaceGiven, std::vector<std::string>& prev, std::string& controlFile) {
     for (int i = first; i < argc; ++i) {
         const std::string arg = argv[i];
         const size_t eq = arg.find('=');
@@ -217,6 +223,7 @@ bool applyArgs(const std::map<std::string, Setter>& setters, int argc, char** ar
         if (k == "frame") frame = std::atof(v.c_str());
         else if (k == "fps") fps = std::atof(v.c_str());
         else if (k == "threads") setMaxThreads(std::atoi(v.c_str()));
+        else if (k == "control_file") controlFile = v;
         else if (k == "prev") {
             std::stringstream ss(v);
             std::string part;
@@ -240,7 +247,7 @@ int main(int argc, char** argv) {
     const auto setters = buildSetters();
     if (argc >= 2 && std::string(argv[1]) == "--list") {
         for (const auto& kv : setters) std::cout << kv.first << "\n";
-        std::cout << "frame\nfps\nthreads\nprev\n";
+        std::cout << "frame\nfps\nthreads\nprev\ncontrol_file\n";
         return 0;
     }
     const bool seq = argc >= 2 && std::string(argv[1]) == "--seq";
@@ -252,7 +259,9 @@ int main(int argc, char** argv) {
     double frame = 0.0, fps = 24.0;
     bool spaceGiven = false;
     std::vector<std::string> prev;
-    if (!applyArgs(setters, argc, argv, seq ? 6 : 3, p, frame, fps, spaceGiven, prev)) return 2;
+    std::string controlFile;
+    if (!applyArgs(setters, argc, argv, seq ? 6 : 3, p, frame, fps, spaceGiven, prev, controlFile)) return 2;
+    if (p.control != kCtlOff && controlFile.empty()) return fail("control= needs control_file=a picture"), 2;
 
     if (!seq) {
         Image src, dst;
@@ -266,7 +275,10 @@ int main(int argc, char** argv) {
             if (!readImage(path, h, f)) return 1;
             history.push_back(h.width == src.width && h.height == src.height ? makeLumaGrid(h, p.colorspace) : LumaGrid());
         }
-        process(p, src, dst, frame, fps, &history);
+        Image ctl;
+        bool ctlFloat = false;
+        if (p.control != kCtlOff && !readImage(controlFile, ctl, ctlFloat)) return 1;
+        process(p, src, dst, frame, fps, &history, p.control != kCtlOff ? &ctl : nullptr);
         return writeImage(argv[2], dst, isFloat) ? 0 : 1;
     }
 
@@ -295,7 +307,13 @@ int main(int argc, char** argv) {
         if (!spaceGiven) pf.colorspace = isFloat ? kCsLinear : kCsSrgb;
         std::vector<LumaGrid> history;
         for (int j = 1; j <= need; ++j) history.push_back(gridOf(n - j, pf.colorspace, src.width, src.height));
-        process(pf, src, dst, n, fps, &history);
+        Image ctl;
+        bool ctlFloat = false;
+        if (p.control != kCtlOff) {
+            const std::string file = controlFile.find('%') != std::string::npos ? numbered(controlFile, n) : controlFile;
+            if (!readImage(file, ctl, ctlFloat)) return 1;
+        }
+        process(pf, src, dst, n, fps, &history, p.control != kCtlOff ? &ctl : nullptr);
         if (!writeImage(numbered(outPattern, n), dst, isFloat)) return 1;
         grids.erase(n - need - 1);
     }

@@ -17,6 +17,7 @@ find_package(Threads REQUIRED)
 
 add_library(timeyum_core STATIC
   core/ColorSpace.cpp
+  core/Control.cpp
   core/Fft.cpp
   core/Kernel.cpp
   core/Noise.cpp
@@ -41,6 +42,9 @@ add_test(NAME fft COMMAND timeyum_test_fft)
 add_executable(timeyum_test_warp tests/test_warp.cpp)
 target_link_libraries(timeyum_test_warp PRIVATE timeyum_core)
 add_test(NAME warp COMMAND timeyum_test_warp)
+add_executable(timeyum_test_control tests/test_control.cpp)
+target_link_libraries(timeyum_test_control PRIVATE timeyum_core)
+add_test(NAME control COMMAND timeyum_test_control)
 # The wrapper logic (parameters, pixel conversion) runs against a mock of the AE SDK.
 add_executable(timeyum_test_ae tests/test_ae_wrapper.cpp)
 target_include_directories(timeyum_test_ae PRIVATE tests/ae_mock ae)

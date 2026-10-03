@@ -55,8 +55,13 @@ struct WarpField {
     double autoX = 0.0, autoY = 0.0, autoConf = 0.0;  // bright area the auto target follows
 };
 
+// controlGrid, when given (from makeControlGrid), lets the control input drive the field like the video does.
 WarpField buildWarpField(const Params& p, int width, int height, const LumaGrid& current,
-                         const std::vector<LumaGrid>& history, double timeSeconds);
+                         const std::vector<LumaGrid>& history, double timeSeconds,
+                         const std::vector<float>* controlGrid = nullptr);
+
+// Averages a width x height plane onto the grid the warp field uses.
+std::vector<float> makeControlGrid(const float* plane, int width, int height);
 
 float gridSample(const std::vector<float>& g, int gw, int gh, double u, double v);
 

@@ -13,8 +13,10 @@ None of the items below has been checked for you. The engine is tested automatic
 7. Render with Multi-Frame Rendering on, and again with it off. The frames must be identical. Render the same frame twice, in different orders: identical again.
 8. Save the project, close it, reopen it: all values must persist. Duplicate the layer, undo, redo.
 9. In the Warp group, test on a clip with something moving: raise Motion Response and the streaks should react from the second frame onward. Look at View, Reaction, to see what the effect sees.
-10. Open the About box and check the version number.
-11. The effect's match name, `Timeyum Timeshift`, must never change after you release: saved projects refer to it.
+10. Control input: choose a control layer (a solid with a mask, a precomp, an alpha matte, a grayscale depth map, a 32 bit depth pass) with each of the six channels and with This Layer Alpha and Luminance. Turn on Show Control and check that it matches what you expect. Try Effect Matte, Streak Source Matte, Streak Length from Control and Warp Drive from Control one at a time. Use a control layer of another size, and check that a Control Layer set to None does nothing.
+11. Click through the panel changing values, the popups and the checkboxes: every control must keep its look, nothing must switch between a number and a slider by itself.
+12. Open the About box and check the version number.
+13. The effect's match name, `Timeyum Timeshift`, must never change after you release: saved projects refer to it.
 
 ## Business and legal
 
