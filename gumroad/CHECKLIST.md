@@ -7,7 +7,7 @@ None of the items below has been checked for you. The engine is tested automatic
 1. Run `package.bat` and check that the zip contains Timeyum.aex (over 1.1 MB, because the banner picture is inside it), INSTALL.txt, USER_GUIDE.pdf, LICENSE.txt and CHANGELOG.txt.
 2. In a command prompt run `dumpbin /dependents build-release\Release\Timeyum.aex`. It should list only Windows system DLLs. If it lists VCRUNTIME140.dll or MSVCP140.dll, customers need the Visual C++ runtime and the build must be fixed first.
 3. Install it the way a customer would, on a second PC if you can. The effect must appear under Effects, Timeyum, and the picture must show at the top of the panel. If it does not, read `%TEMP%\timeyum_log.txt`.
-4. Apply it to a normal layer and to an adjustment layer. Try 8, 16 and 32 bits per channel, a layer with alpha, a 4K comp.
+4. Apply it to a normal layer and to an adjustment layer. Try 8, 16 and 32 bits per channel, a layer with alpha, a 4K comp. Try layers that are not the size of the composition: smaller, larger, moved so that part of the layer is outside the frame, scaled, and a precomp. Copy the effect from one layer and paste it onto another, then apply a fresh one to a third. Each must render the same picture.
 5. Switch the composition preview to half and third resolution. The preview must look like the full resolution render, and the Pull Point must stay on the same spot of the image.
 6. Check that the Pull Point starts at the centre of the layer. Drag it in the composition panel. Link it to a null with an expression.
 7. Render with Multi-Frame Rendering on, and again with it off. The frames must be identical. Render the same frame twice, in different orders: identical again.

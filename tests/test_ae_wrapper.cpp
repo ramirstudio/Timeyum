@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <random>
 
 static int g_fail = 0;
@@ -43,10 +44,22 @@ static PF_Err coLayerPixels(void*, A_long id, PF_EffectWorld** w) {
 }
 static PF_Err coOutput(void*, PF_EffectWorld** w) { *w = g_out; return 0; }
 static PF_Err ciLayerPixels(void*, A_long) { ++g_checkins; return 0; }
+static PF_LRect g_layerRect = {0, 0, 96, 54};  // where the layer sits, in layer coordinates
+static A_long g_refW = 96, g_refH = 54;            // full resolution size of the layer
+static PF_LRect g_inputRequest = {0, 0, 0, 0};     // what pre-render asked for the input
+static PF_LRect clip(const PF_LRect& a, const PF_LRect& b) {
+    PF_LRect r = {std::max(a.left, b.left), std::max(a.top, b.top), std::min(a.right, b.right), std::min(a.bottom, b.bottom)};
+    if (r.right < r.left) r.right = r.left;
+    if (r.bottom < r.top) r.bottom = r.top;
+    return r;
+}
 static PF_Err coLayer(void*, A_long, A_long id, const PF_RenderRequest* r, A_long time, A_long, A_long, PF_CheckoutResult* out) {
     if (id > 0) g_pastCheckouts.push_back({id, time});
-    out->result_rect = r->rect;
-    out->max_result_rect = r->rect;
+    else g_inputRequest = r->rect;
+    out->result_rect = clip(r->rect, g_layerRect);  // After Effects clips the request to what the layer has
+    out->max_result_rect = g_layerRect;
+    out->ref_width = g_refW;
+    out->ref_height = g_refH;
     return 0;
 }
 
@@ -167,8 +180,18 @@ int main() {
     PF_PreRenderInput pri{}; pri.output_request.rect = {10, 10, 20, 20};
     PF_PreRenderOutput pro{};
     PF_PreRenderExtra pre{&pri, &pro, &prc};
+    auto freePro = [&] {
+        if (pro.pre_render_data) pro.delete_pre_render_data_func(pro.pre_render_data);
+        pro.pre_render_data = nullptr;
+    };
     CHECK(EffectMain(PF_Cmd_SMART_PRE_RENDER, &in, &out, params, nullptr, &pre) == 0, "pre-render");
-    CHECK(pro.result_rect.right == 96 && pro.result_rect.bottom == 54 && pro.result_rect.left == 0, "pre-render requests the full layer");
+    CHECK(pro.result_rect.left == 10 && pro.result_rect.top == 10 && pro.result_rect.right == 20 && pro.result_rect.bottom == 20,
+          "the output is what was asked for: (%d,%d)-(%d,%d)", pro.result_rect.left, pro.result_rect.top, pro.result_rect.right, pro.result_rect.bottom);
+    CHECK(pro.max_result_rect.right == 96 && pro.max_result_rect.bottom == 54, "max result rect is the layer");
+    CHECK(g_inputRequest.left <= 0 && g_inputRequest.top <= 0 && g_inputRequest.right >= 96 && g_inputRequest.bottom >= 54,
+          "the input is not requested whole: (%d,%d)-(%d,%d)", g_inputRequest.left, g_inputRequest.top, g_inputRequest.right, g_inputRequest.bottom);
+    CHECK(pro.pre_render_data != nullptr && pro.delete_pre_render_data_func != nullptr, "pre-render data");
+    freePro();
 
     // Pre-render asks for the past frames the warp reacts to, and only then.
     {
@@ -177,10 +200,12 @@ int main() {
         in.current_time = 10010;
         in.time_step = 1001;
         CHECK(EffectMain(PF_Cmd_SMART_PRE_RENDER, &in, &out, params, nullptr, &pre) == 0, "pre-render without warp");
+        freePro();
         CHECK(g_pastCheckouts.empty(), "warp off asked for %zu past frames", g_pastCheckouts.size());
         PF_ParamDef on; on.u.bd.value = 1;
         mockOverrides()[P_WARP] = on;
         CHECK(EffectMain(PF_Cmd_SMART_PRE_RENDER, &in, &out, params, nullptr, &pre) == 0, "pre-render with warp");
+        freePro();
         CHECK(static_cast<int>(g_pastCheckouts.size()) == Params().history, "asked for %zu past frames", g_pastCheckouts.size());
         for (size_t i = 0; i < g_pastCheckouts.size(); ++i)
             CHECK(g_pastCheckouts[i].first == static_cast<A_long>(i + 1) && g_pastCheckouts[i].second == 10010 - static_cast<A_long>(i + 1) * 1001,
@@ -190,6 +215,7 @@ int main() {
         mockOverrides()[P_INERTIA] = noMotion;
         g_pastCheckouts.clear();
         EffectMain(PF_Cmd_SMART_PRE_RENDER, &in, &out, params, nullptr, &pre);
+        freePro();
         CHECK(g_pastCheckouts.empty(), "no motion and no inertia still asked for past frames");
         mockOverrides().clear();
         in.current_time = 0;
@@ -207,9 +233,28 @@ int main() {
             px[0] = bright * a; px[1] = bright * 0.8f * a; px[2] = bright * 0.5f * a; px[3] = a;
         }
     PF_SmartRenderCallbacks src{coLayerPixels, coOutput, ciLayerPixels};
-    PF_SmartRenderExtra sre{&src};
+    PF_SmartRenderInput sri{};
+    PF_SmartRenderExtra sre{&sri, &src};
+    // Runs a real pre-render for the requested window and hands its data to the render.
+    auto prepare = [&](PF_LRect layer, PF_LRect request) {
+        g_layerRect = layer;
+        pri.output_request.rect = request;
+        freePro();
+        pro = PF_PreRenderOutput{};
+        const PF_Err e = EffectMain(PF_Cmd_SMART_PRE_RENDER, &in, &out, params, nullptr, &pre);
+        CHECK(e == 0, "pre-render for a window");
+        sri.pre_render_data = pro.pre_render_data;
+        sri.output_request.rect = request;
+    };
 
     struct Case { PF_PixelFormat fmt; const char* name; double tol; int cs; };
+    // Where the layer sits and which window of it is rendered: the layer fills the window, the window is a crop
+    // of the layer, and the layer is larger than the window and starts at a negative position.
+    struct Window { const char* name; PF_LRect layer; PF_LRect request; };
+    const Window windows[] = {{"whole layer", {0, 0, 96, 54}, {0, 0, 96, 54}},
+                              {"cropped", {0, 0, 96, 54}, {7, 5, 47, 35}},
+                              {"moved layer, visible part", {-20, -10, 76, 44}, {0, 0, 60, 30}}};
+    for (const Window& wd : windows)
     for (const Case& c : {Case{PF_PixelFormat_ARGB128, "32 bit", 1e-6, 0}, Case{PF_PixelFormat_ARGB64, "16 bit", 2e-4, 0},
                           Case{PF_PixelFormat_ARGB32, "8 bit", 6e-3, 0}, Case{PF_PixelFormat_ARGB32, "8 bit sRGB", 6e-3, 1}}) {
         mockFormat() = c.fmt;
@@ -218,11 +263,11 @@ int main() {
         PF_ParamDef len; len.u.fs_d.value = 80.0; mockOverrides()[P_LENGTH] = len;
 
         const size_t bpp = c.fmt == PF_PixelFormat_ARGB128 ? 16 : (c.fmt == PF_PixelFormat_ARGB64 ? 8 : 4);
-        const int ox = 7, oy = 5;  // output buffer is a crop with an origin offset
-        const int ow = 40, oh = 30;
+        const int ow = wd.request.right - wd.request.left, oh = wd.request.bottom - wd.request.top;
         std::vector<char> inBuf(96 * 54 * bpp + 64), outBuf(static_cast<size_t>(ow) * oh * bpp + 64);
-        PF_EffectWorld inW{inBuf.data(), static_cast<A_long>(96 * bpp), 96, 54, 0, 0};
-        PF_EffectWorld outW{outBuf.data(), static_cast<A_long>(ow * bpp), ow, oh, -ox, -oy};
+        // the origins of the buffers are deliberately meaningless: the render must not depend on them
+        PF_EffectWorld inW{inBuf.data(), static_cast<A_long>(96 * bpp), 96, 54, 321, -45};
+        PF_EffectWorld outW{outBuf.data(), static_cast<A_long>(ow * bpp), ow, oh, -77, 123};
         // quantise the scene exactly like the host would
         Image quant;
         {
@@ -231,7 +276,8 @@ int main() {
             readWorld(&inW, c.fmt, quant);
         }
         g_in = &inW; g_out = &outW;
-        CHECK(EffectMain(PF_Cmd_SMART_RENDER, &in, &out, params, nullptr, &sre) == 0, "%s render call", c.name);
+        prepare(wd.layer, wd.request);
+        CHECK(EffectMain(PF_Cmd_SMART_RENDER, &in, &out, params, nullptr, &sre) == 0, "%s %s render call", wd.name, c.name);
 
         Params pp = readParams(&in);
         Image expected, dst;
@@ -242,12 +288,17 @@ int main() {
         encodeColor(dst, pp.colorspace);
         Image got;
         readWorld(&outW, c.fmt, got);
-        double worst = 0;
+        const int ox = wd.request.left - wd.layer.left, oy = wd.request.top - wd.layer.top;
+        double worst = 0, bright = 0;
         for (int y = 0; y < oh; ++y)
             for (int x = 0; x < ow; ++x)
-                for (int k = 0; k < 4; ++k) worst = std::fmax(worst, std::fabs(got.row(y)[x * 4 + k] - dst.row(y + oy)[(x + ox) * 4 + k]));
-        CHECK(worst <= c.tol, "%s: output differs from core by %g", c.name, worst);
-        std::printf("%-10s max difference to core: %.2e\n", c.name, worst);
+                for (int k = 0; k < 4; ++k) {
+                    worst = std::fmax(worst, std::fabs(got.row(y)[x * 4 + k] - dst.row(y + oy)[(x + ox) * 4 + k]));
+                    bright = std::fmax(bright, got.row(y)[x * 4 + k]);
+                }
+        CHECK(worst <= c.tol, "%s, %s: output differs from core by %g", wd.name, c.name, worst);
+        CHECK(bright > 0.05, "%s, %s: the output is black", wd.name, c.name);
+        if (!std::strcmp(wd.name, "whole layer") || c.fmt == PF_PixelFormat_ARGB32) std::printf("%-26s %-10s max difference to core: %.2e\n", wd.name, c.name, worst);
     }
     // A warp render with history, in 32 bit and 8 bit sRGB, equals the core fed the same data.
     for (int cs : {0, 1}) {
@@ -279,6 +330,7 @@ int main() {
         }
         g_in = &worlds[0];
         for (int k = 1; k < 5; ++k) g_past[k] = &worlds[k];
+        prepare({0, 0, 96, 54}, {0, 0, 96, 54});
         std::vector<char> outBuf(96 * 54 * bpp + 64);
         PF_EffectWorld outW{outBuf.data(), static_cast<A_long>(96 * bpp), 96, 54, 0, 0};
         g_out = &outW;
@@ -319,6 +371,20 @@ int main() {
         in.current_time = 0;
     }
     mockOverrides().clear();
+
+    // The pull point is a fraction of the layer whatever the preview resolution: at half resolution the layer
+    // is 96 x 54 pixels in the buffers and 192 x 108 at full size.
+    {
+        PF_InData half = in;
+        half.downsample_x = {1, 2};
+        half.downsample_y = {1, 2};
+        PF_ParamDef pt; pt.u.td.x_value = static_cast<PF_Fixed>(0.3 * 96 * 65536.0); pt.u.td.y_value = static_cast<PF_Fixed>(0.6 * 54 * 65536.0);
+        mockOverrides()[P_PULL_POINT] = pt;
+        const Params ph = readParams(&half, 192, 108);
+        CHECK(std::fabs(ph.pull_x - 0.3) < 1e-4 && std::fabs(ph.pull_y - 0.6) < 1e-4, "pull point at half resolution: (%g, %g)", ph.pull_x, ph.pull_y);
+        mockOverrides().clear();
+    }
+    freePro();
 
     std::printf(g_fail ? "%d check(s) failed\n" : "all wrapper checks passed\n", g_fail);
     return g_fail ? 1 : 0;

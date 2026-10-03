@@ -112,13 +112,13 @@ struct PF_RenderRequest {
     PF_LRect rect;
     A_Boolean preserve_rgb_of_zero_alpha = 0;
 };
-struct PF_CheckoutResult { PF_LRect result_rect, max_result_rect; };
+struct PF_CheckoutResult { PF_LRect result_rect, max_result_rect; A_long ref_width = 0, ref_height = 0; };
 
 struct PF_PreRenderCallbacks {
     PF_Err (*checkout_layer)(void*, A_long, A_long, const PF_RenderRequest*, A_long, A_long, A_long, PF_CheckoutResult*);
 };
 struct PF_PreRenderInput { PF_RenderRequest output_request; };
-struct PF_PreRenderOutput { PF_LRect result_rect, max_result_rect; A_Boolean solid; void* pre_render_data; };
+struct PF_PreRenderOutput { PF_LRect result_rect, max_result_rect; A_Boolean solid; void* pre_render_data; void (*delete_pre_render_data_func)(void*) = nullptr; };
 struct PF_PreRenderExtra { PF_PreRenderInput* input; PF_PreRenderOutput* output; PF_PreRenderCallbacks* cb; };
 
 struct PF_SmartRenderCallbacks {
@@ -126,7 +126,9 @@ struct PF_SmartRenderCallbacks {
     PF_Err (*checkout_output)(void*, PF_EffectWorld**);
     PF_Err (*checkin_layer_pixels)(void*, A_long);
 };
-struct PF_SmartRenderExtra { PF_SmartRenderCallbacks* cb; };
+struct PF_SmartRenderInput { PF_RenderRequest output_request; void* pre_render_data = nullptr; };
+struct PF_SmartRenderExtra { PF_SmartRenderInput* input; PF_SmartRenderCallbacks* cb; };
+#define PF_Err_BAD_CALLBACK_PARAM 7
 
 #define AEFX_CLR_STRUCT(s) do {} while (0)
 #define ERR(x) do { if (!err) err = (x); } while (0)

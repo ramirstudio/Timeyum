@@ -25,9 +25,9 @@ If the effect does not appear
 - The file must be in a folder under MediaCore (or in MediaCore itself), not in
   an older Plug-ins folder.
 - The plug-in is for After Effects only, not for Premiere Pro.
-- If the picture at the top of the panel is missing, the reason is written to
-  timeyum_log.txt in your temporary folder (type %TEMP% in the Explorer address bar).
-  The effect works without the picture.
+- If the picture at the top of the panel is missing, or a layer turns black, the
+  reason is written to timeyum_log.txt in your temporary folder (type %TEMP% in the
+  Explorer address bar). The effect works without the picture.
 
 Files in this package
   Timeyum.aex          the plug-in

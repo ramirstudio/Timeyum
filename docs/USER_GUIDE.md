@@ -122,7 +122,9 @@ Timeyum runs on the CPU and uses every core. A frame takes a fraction of a secon
 
 The effect is not in the menu. If you downloaded the zip, right-click it, choose Properties and tick Unblock before extracting. Check that Timeyum.aex is in the MediaCore folder described in INSTALL.txt, that After Effects was closed during the copy, and that you are using a 64 bit Windows version of After Effects 2026.
 
-The picture at the top of the panel is missing. The plug-in writes the reason to timeyum_log.txt in your temporary folder (type %TEMP% in the Explorer address bar). The effect works without it.
+The layer turns black or the effect shows an error. Timeyum writes what happened to timeyum_log.txt in your temporary folder (type %TEMP% in the Explorer address bar): the size and position of the layer it received, and the reason for any error. Send that file to support together with the size of the layer and of the composition.
+
+The picture at the top of the panel is missing. The same log file has the reason. The effect works without the picture.
 
 Nothing happens at Timing Shift 0 degrees. That is correct: the shutter closes before the film moves.
 

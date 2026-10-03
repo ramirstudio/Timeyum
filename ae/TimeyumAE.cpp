@@ -4,6 +4,7 @@
 // SDK. Expect to fix small API mismatches against the SDK version you build with.
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -60,6 +61,22 @@ using timeyum::Params;
 // ---------------------------------------------------------------------------------------------
 
 constexpr float kMax16 = 32768.0f;  // PF_MAX_CHAN16
+
+// Appends a line to timeyum_log.txt in the temporary folder (nothing in the mock SDK build).
+void logLine(const std::string& text) {
+#if defined(AE_OS_WIN) && !defined(TIMEYUM_MOCK_SDK)
+    char path[MAX_PATH];
+    const DWORD n = GetTempPathA(MAX_PATH, path);
+    if (n == 0 || n > MAX_PATH - 20) return;
+    std::strcat(path, "timeyum_log.txt");
+    if (FILE* f = std::fopen(path, "a")) {
+        std::fprintf(f, "%s\n", text.c_str());
+        std::fclose(f);
+    }
+#else
+    (void)text;
+#endif
+}
 
 #ifdef TIMEYUM_BANNER
 constexpr int kBannerUiWidth = 200;  // hint only: the banner is drawn across the whole row
@@ -375,7 +392,9 @@ private:
     PF_InData* in_;
 };
 
-Params readParams(PF_InData* in) {
+// layerW and layerH are the full resolution size of the layer (PF_CheckoutResult::ref_width); without them
+// the point is taken as a fraction of in_data->width and height.
+Params readParams(PF_InData* in, double layerW = 0.0, double layerH = 0.0) {
     ParamReader r(in);
     Params p;
     p.opacity = r.real(P_OPACITY) / 100.0;
@@ -451,8 +470,12 @@ Params readParams(PF_InData* in) {
     p.wave_reaction = r.real(P_WAVE_REACTION) / 100.0;
     double pt[2];
     r.point(P_PULL_POINT, pt);
-    p.pull_x = in->width > 0 ? pt[0] / in->width : 0.5;
-    p.pull_y = in->height > 0 ? pt[1] / in->height : 0.5;
+    // The point arrives in pixels at the current preview resolution.
+    const double dsx = in->downsample_x.den > 0 && in->downsample_x.num > 0 ? static_cast<double>(in->downsample_x.num) / in->downsample_x.den : 1.0;
+    const double dsy = in->downsample_y.den > 0 && in->downsample_y.num > 0 ? static_cast<double>(in->downsample_y.num) / in->downsample_y.den : 1.0;
+    const double refW = layerW > 0.0 ? layerW * dsx : in->width, refH = layerH > 0.0 ? layerH * dsy : in->height;
+    p.pull_x = refW > 0 ? pt[0] / refW : 0.5;
+    p.pull_y = refH > 0 ? pt[1] / refH : 0.5;
     p.pull_strength = r.real(P_PULL_STRENGTH) / 100.0;
     p.pull_radius = r.real(P_PULL_RADIUS) / 100.0;
     p.pull_length = r.real(P_PULL_LENGTH) / 100.0;
@@ -600,52 +623,88 @@ PF_Err updateParamsUI(PF_InData* in_data, PF_ParamDef* params[]) {
     return PF_Err_NONE;
 }
 
+// What PreRender found out and SmartRender needs: where the input and the output buffers sit in layer
+// coordinates (the same scheme the Lensyum plug-in uses), and the full resolution size of the layer.
+struct PreRenderData {
+    PF_LRect inRect;
+    PF_LRect outRect;
+    double layerW, layerH;
+};
+
+void deletePreRenderData(void* p) { delete static_cast<PreRenderData*>(p); }
+
 PF_Err preRender(PF_InData* in_data, PF_OutData* out_data, PF_PreRenderExtra* extra) {
     PF_Err err = PF_Err_NONE, err2 = PF_Err_NONE;
     (void)out_data;
 
-    // The streak wraps around the whole layer, so every render needs the full input.
-    PF_RenderRequest req = extra->input->output_request;
-    req.rect.left = 0;
-    req.rect.top = 0;
-    req.rect.right = in_data->width;
-    req.rect.bottom = in_data->height;
-    req.preserve_rgb_of_zero_alpha = TRUE;
+    const PF_RenderRequest req = extra->input->output_request;
 
-    PF_CheckoutResult in_result;
-    ERR(extra->cb->checkout_layer(in_data->effect_ref, P_INPUT, P_INPUT, &req, in_data->current_time, in_data->time_step,
-                                  in_data->time_scale, &in_result));
-    if (!err) {
-        extra->output->result_rect = in_result.result_rect;
-        extra->output->max_result_rect = in_result.max_result_rect;
-        extra->output->solid = FALSE;
-        extra->output->pre_render_data = nullptr;
-        // Register the parameter dependencies so cached frames invalidate correctly.
-        for (int i = 1; i < P_COUNT && !err; ++i) {
+    // The streak wraps around the whole layer, so every render needs all of it. A huge rectangle is how
+    // to ask for "the whole layer": After Effects clips it to what the layer has, at any resolution, and
+    // for layers that are larger than the composition, moved, or cropped.
+    PF_RenderRequest inReq = req;
+    inReq.rect.left = inReq.rect.top = -30000;
+    inReq.rect.right = inReq.rect.bottom = 30000;
+    inReq.preserve_rgb_of_zero_alpha = TRUE;
+
+    PF_CheckoutResult inRes;
+    ERR(extra->cb->checkout_layer(in_data->effect_ref, P_INPUT, P_INPUT, &inReq, in_data->current_time, in_data->time_step,
+                                  in_data->time_scale, &inRes));
+    if (err) return err;
+
+    // Register the parameter dependencies so cached frames invalidate correctly.
+    for (int i = 1; i < P_COUNT && !err; ++i) {
 #ifdef TIMEYUM_BANNER
-            if (i == P_BANNER) continue;
+        if (i == P_BANNER) continue;
 #endif
-            PF_ParamDef d;
-            AEFX_CLR_STRUCT(d);
-            ERR(PF_CHECKOUT_PARAM(in_data, i, in_data->current_time, in_data->time_step, in_data->time_scale, &d));
-            ERR2(PF_CHECKIN_PARAM(in_data, &d));
-        }
-        // The warp reacts to motion: ask for the frames before this one.
-        if (!err) {
-            const int need = timeyum::warpHistoryCount(readParams(in_data));
-            const A_long step = in_data->time_step > 0 ? in_data->time_step : in_data->time_scale / 24;
-            for (int i = 1; i <= need && !err; ++i) {
-                PF_CheckoutResult past;
-                ERR(extra->cb->checkout_layer(in_data->effect_ref, P_INPUT, i, &req, in_data->current_time - i * step, in_data->time_step,
-                                              in_data->time_scale, &past));
-            }
+        PF_ParamDef d;
+        AEFX_CLR_STRUCT(d);
+        ERR(PF_CHECKOUT_PARAM(in_data, i, in_data->current_time, in_data->time_step, in_data->time_scale, &d));
+        ERR2(PF_CHECKIN_PARAM(in_data, &d));
+    }
+    // The warp reacts to motion: ask for the frames before this one.
+    if (!err) {
+        const int need = timeyum::warpHistoryCount(readParams(in_data));
+        const A_long step = in_data->time_step > 0 ? in_data->time_step : in_data->time_scale / 24;
+        for (int i = 1; i <= need && !err; ++i) {
+            PF_CheckoutResult past;
+            ERR(extra->cb->checkout_layer(in_data->effect_ref, P_INPUT, i, &inReq, in_data->current_time - i * step, in_data->time_step,
+                                          in_data->time_scale, &past));
         }
     }
+    if (err) return err;
+
+    // Output: what was asked for, within what the input can provide (the layer does not grow).
+    PF_LRect outRect = req.rect;
+    outRect.left = std::max(outRect.left, inRes.max_result_rect.left);
+    outRect.top = std::max(outRect.top, inRes.max_result_rect.top);
+    outRect.right = std::min(outRect.right, inRes.max_result_rect.right);
+    outRect.bottom = std::min(outRect.bottom, inRes.max_result_rect.bottom);
+    if (outRect.right < outRect.left) outRect.right = outRect.left;
+    if (outRect.bottom < outRect.top) outRect.bottom = outRect.top;
+
+    extra->output->result_rect = outRect;
+    extra->output->max_result_rect = inRes.max_result_rect;
+    extra->output->solid = FALSE;
+
+    PreRenderData* prd = new (std::nothrow) PreRenderData;
+    if (!prd) return PF_Err_OUT_OF_MEMORY;
+    prd->inRect = inRes.result_rect;
+    prd->outRect = outRect;
+    prd->layerW = inRes.ref_width > 0 ? inRes.ref_width : in_data->width;
+    prd->layerH = inRes.ref_height > 0 ? inRes.ref_height : in_data->height;
+    extra->output->pre_render_data = prd;
+    extra->output->delete_pre_render_data_func = deletePreRenderData;
     return err ? err : err2;
 }
 
 PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra* extra) {
     PF_Err err = PF_Err_NONE, err2 = PF_Err_NONE;
+    const PreRenderData* prd = static_cast<const PreRenderData*>(extra->input->pre_render_data);
+    if (!prd) {
+        logLine("render: no pre-render data");
+        return PF_Err_BAD_CALLBACK_PARAM;
+    }
     PF_EffectWorld* input = nullptr;
     PF_EffectWorld* output = nullptr;
 
@@ -658,7 +717,7 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
             ERR(worldSuite->PF_GetPixelFormat(input, &fmt));
 
             if (!err) {
-                Params p = readParams(in_data);
+                Params p = readParams(in_data, prd->layerW, prd->layerH);
                 const int cs = p.colorspace;
                 p.colorspace = timeyum::kCsLinear;
 
@@ -689,17 +748,33 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
                 timeyum::process(p, src, dst, frame, fps, &history);
                 encodeColor(dst, cs);
 
-                // A buffer pixel x sits at layer coordinate x - origin_x, so the output pixel (0, 0)
-                // corresponds to input pixel (in.origin_x - out.origin_x, in.origin_y - out.origin_y).
-                const int dx = input->origin_x - output->origin_x;
-                const int dy = input->origin_y - output->origin_y;
+                // Both buffers are windows on the layer: the output pixel (0, 0) is at layer position
+                // outRect.left/top, the input pixel (0, 0) at inRect.left/top.
+                const int dx = prd->outRect.left - prd->inRect.left;
+                const int dy = prd->outRect.top - prd->inRect.top;
+                static std::atomic<int> geometryLogs{0};
+                if (geometryLogs.fetch_add(1) < 12) {
+                    char buf[512];
+                    std::snprintf(buf, sizeof(buf),
+                                  "render: input %dx%d at (%d,%d)-(%d,%d), output %dx%d at (%d,%d)-(%d,%d), offset (%d,%d), layer %gx%g, format %d, downsample %d/%d",
+                                  input->width, input->height, static_cast<int>(prd->inRect.left), static_cast<int>(prd->inRect.top),
+                                  static_cast<int>(prd->inRect.right), static_cast<int>(prd->inRect.bottom), output->width, output->height,
+                                  static_cast<int>(prd->outRect.left), static_cast<int>(prd->outRect.top), static_cast<int>(prd->outRect.right),
+                                  static_cast<int>(prd->outRect.bottom), dx, dy, prd->layerW, prd->layerH, static_cast<int>(fmt),
+                                  static_cast<int>(in_data->downsample_x.num), static_cast<int>(in_data->downsample_x.den));
+                    logLine(buf);
+                }
                 writeWorld(dst, output, fmt, dx, dy);
             }
         } catch (const std::bad_alloc&) {
+            logLine("render: out of memory");
             err = PF_Err_OUT_OF_MEMORY;
-        } catch (const std::exception&) {
+        } catch (const std::exception& e) {
+            logLine(std::string("render: exception: ") + e.what());
             err = PF_Err_INTERNAL_STRUCT_DAMAGED;
         }
+    } else if (!err) {
+        logLine("render: the input or the output buffer is missing");
     }
     ERR2(extra->cb->checkin_layer_pixels(in_data->effect_ref, P_INPUT));
     return err;
@@ -716,21 +791,6 @@ PF_Err smartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
 //    over the union of both and each event paints its own share;
 //  - pixels go to Drawbot as straight BGRA, the resource name must not equal a compile definition
 //    (the resource compiler would substitute it), and the .rc must be compiled (enable_language(RC)).
-
-void logLine(const std::string& text) {
-#ifdef AE_OS_WIN
-    char path[MAX_PATH];
-    const DWORD n = GetTempPathA(MAX_PATH, path);
-    if (n == 0 || n > MAX_PATH - 20) return;
-    std::strcat(path, "timeyum_log.txt");
-    if (FILE* f = std::fopen(path, "a")) {
-        std::fprintf(f, "%s\n", text.c_str());
-        std::fclose(f);
-    }
-#else
-    (void)text;
-#endif
-}
 
 void moduleAnchor() {}
 
@@ -908,7 +968,12 @@ DllExport PF_Err EffectMain(PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data
     } catch (PF_Err& thrown) {
         err = thrown;
     } catch (...) {
+        logLine("unknown exception");
         err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+    }
+    if (err != PF_Err_NONE) {
+        static std::atomic<int> errorLogs{0};
+        if (errorLogs.fetch_add(1) < 50) logLine("command " + std::to_string(static_cast<int>(cmd)) + " returned error " + std::to_string(static_cast<int>(err)));
     }
     return err;
 }
